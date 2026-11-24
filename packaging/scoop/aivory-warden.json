@@ -1,0 +1,37 @@
+{
+  "version": "{{VERSION}}",
+  "description": "Rotate access tokens on a schedule and use them without handling them",
+  "homepage": "https://github.com/aivorynet/warden",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/aivorynet/warden/releases/download/v{{VERSION}}/aivory-warden-x86_64-pc-windows-msvc.zip",
+      "hash": "{{SHA256_WINDOWS_X64}}",
+      "extract_dir": "aivory-warden-x86_64-pc-windows-msvc"
+    },
+    "arm64": {
+      "url": "https://github.com/aivorynet/warden/releases/download/v{{VERSION}}/aivory-warden-aarch64-pc-windows-msvc.zip",
+      "hash": "{{SHA256_WINDOWS_ARM64}}",
+      "extract_dir": "aivory-warden-aarch64-pc-windows-msvc"
+    }
+  },
+  "bin": ["aivory-warden.exe", "awd.exe"],
+  "checkver": {
+    "github": "https://github.com/aivorynet/warden"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/aivorynet/warden/releases/download/v$version/aivory-warden-x86_64-pc-windows-msvc.zip",
+        "extract_dir": "aivory-warden-x86_64-pc-windows-msvc"
+      },
+      "arm64": {
+        "url": "https://github.com/aivorynet/warden/releases/download/v$version/aivory-warden-aarch64-pc-windows-msvc.zip",
+        "extract_dir": "aivory-warden-aarch64-pc-windows-msvc"
+      }
+    },
+    "hash": {
+      "url": "https://github.com/aivorynet/warden/releases/download/v$version/SHA256SUMS"
+    }
+  }
+}

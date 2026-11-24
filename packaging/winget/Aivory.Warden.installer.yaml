@@ -1,0 +1,27 @@
+# winget installer manifest. Template: packaging/render-packages.sh fills the placeholders.
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
+PackageIdentifier: Aivory.Warden
+PackageVersion: "{{VERSION}}"
+InstallerType: zip
+NestedInstallerType: portable
+UpgradeBehavior: install
+ReleaseDate: "{{DATE}}"
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/aivorynet/warden/releases/download/v{{VERSION}}/aivory-warden-x86_64-pc-windows-msvc.zip
+    InstallerSha256: "{{SHA256_WINDOWS_X64}}"
+    NestedInstallerFiles:
+      - RelativeFilePath: aivory-warden-x86_64-pc-windows-msvc\aivory-warden.exe
+        PortableCommandAlias: aivory-warden
+      - RelativeFilePath: aivory-warden-x86_64-pc-windows-msvc\awd.exe
+        PortableCommandAlias: awd
+  - Architecture: arm64
+    InstallerUrl: https://github.com/aivorynet/warden/releases/download/v{{VERSION}}/aivory-warden-aarch64-pc-windows-msvc.zip
+    InstallerSha256: "{{SHA256_WINDOWS_ARM64}}"
+    NestedInstallerFiles:
+      - RelativeFilePath: aivory-warden-aarch64-pc-windows-msvc\aivory-warden.exe
+        PortableCommandAlias: aivory-warden
+      - RelativeFilePath: aivory-warden-aarch64-pc-windows-msvc\awd.exe
+        PortableCommandAlias: awd
+ManifestType: installer
+ManifestVersion: 1.9.0

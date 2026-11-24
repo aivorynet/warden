@@ -1,0 +1,27 @@
+# winget default locale manifest. Template: packaging/render-packages.sh fills {{VERSION}}.
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+PackageIdentifier: Aivory.Warden
+PackageVersion: "{{VERSION}}"
+PackageLocale: en-US
+Publisher: Aivory, Inc.
+PublisherUrl: https://aivory.net
+PublisherSupportUrl: https://github.com/aivorynet/warden/issues
+PackageName: Aivory Warden
+PackageUrl: https://github.com/aivorynet/warden
+License: MIT
+LicenseUrl: https://github.com/aivorynet/warden/blob/main/LICENSE
+ShortDescription: Rotate access tokens on a schedule and use them without handling them
+Description: |-
+  Aivory Warden is an open-source access token manager. A background daemon rotates admin and
+  derived tokens and updates the files, environment variables and SSH hosts that use them.
+  Agents use tokens through an MCP server without reading them.
+Moniker: awd
+Tags:
+  - security
+  - tokens
+  - secrets
+  - rotation
+  - mcp
+ReleaseNotesUrl: https://github.com/aivorynet/warden/releases/tag/v{{VERSION}}
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0

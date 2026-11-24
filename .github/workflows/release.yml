@@ -1,0 +1,230 @@
+name: release
+# Runs on a tag v* only. Signing steps skip when their secrets are absent.
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  cli:
+    name: cli ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, ext: zip }
+          # Best effort: the arm64 Windows build may fail without blocking the release.
+          - { os: windows-11-arm, target: aarch64-pc-windows-msvc, ext: zip, best_effort: true }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, ext: tar.gz }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, ext: tar.gz }
+          - { os: macos-15-intel, target: x86_64-apple-darwin, ext: tar.gz }
+          - { os: macos-latest, target: aarch64-apple-darwin, ext: tar.gz }
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.best_effort == true }}
+    env:
+      NAME: aivory-warden-${{ matrix.target }}
+      # Secrets are optional. An empty value skips the matching signing step.
+      WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+      WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build the CLI
+        run: cargo build --release --locked --target ${{ matrix.target }} -p aivory-warden
+      - name: Sign with Authenticode (skips without secrets)
+        if: runner.os == 'Windows' && env.WINDOWS_CERT_PFX_BASE64 != ''
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'cert.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+          $signtool = (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1).FullName
+          foreach ($f in 'aivory-warden.exe', 'awd.exe') {
+            & $signtool sign /f $pfx /p $env:WINDOWS_CERT_PASSWORD /fd sha256 /tr http://timestamp.digicert.com /td sha256 "target/${{ matrix.target }}/release/$f"
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed for $f" }
+          }
+          Remove-Item $pfx
+      - name: Sign and notarize for macOS (skips without secrets)
+        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != '' && env.APPLE_ID != ''
+        run: |
+          kc="$RUNNER_TEMP/warden.keychain-db"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p tmp "$kc"
+          security set-keychain-settings -lut 3600 "$kc"
+          security unlock-keychain -p tmp "$kc"
+          security import "$RUNNER_TEMP/cert.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$kc"
+          security set-key-partition-list -S apple-tool:,apple: -k tmp "$kc"
+          security list-keychains -d user -s "$kc" login.keychain
+          rel=target/${{ matrix.target }}/release
+          for f in aivory-warden awd; do
+            codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$rel/$f"
+          done
+          (cd "$rel" && zip "$RUNNER_TEMP/notarize.zip" aivory-warden awd)
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          # A bare binary cannot carry a stapled ticket. Gatekeeper checks the ticket online.
+      - name: Archive
+        shell: bash
+        run: |
+          rel=target/${{ matrix.target }}/release
+          mkdir -p "dist/$NAME"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "$rel/aivory-warden.exe" "$rel/awd.exe" "dist/$NAME/"
+          else
+            cp "$rel/aivory-warden" "$rel/awd" "dist/$NAME/"
+          fi
+          cp LICENSE README.md "dist/$NAME/"
+          cd dist
+          if [ "${{ matrix.ext }}" = "zip" ]; then
+            7z a "$NAME.zip" "$NAME" > /dev/null
+          else
+            tar czf "$NAME.tar.gz" "$NAME"
+          fi
+          rm -rf "$NAME"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - name: Build the extension
+        working-directory: extension
+        run: |
+          npm ci
+          npm run build
+      - name: Zip the Edge extension
+        run: |
+          mkdir -p dist
+          (cd extension/dist && zip -r "$GITHUB_WORKSPACE/dist/aivory-warden-edge-extension.zip" .)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension
+          path: dist/*
+          if-no-files-found: error
+
+  desktop:
+    name: desktop ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, args: "--bundles msi" }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, args: "--bundles appimage,deb" }
+          - { os: macos-15-intel, target: x86_64-apple-darwin, args: "--bundles dmg" }
+          - { os: macos-latest, target: aarch64-apple-darwin, args: "--bundles dmg" }
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    env:
+      # Optional. An empty value means unsigned.
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check that the desktop app exists
+        id: app
+        shell: bash
+        run: |
+          if [ -f apps/desktop/package.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "::warning::apps/desktop is missing; the desktop bundles are skipped"; fi
+      - if: steps.app.outputs.present == 'true' && runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libdbus-1-dev libssl-dev pkg-config
+      - if: steps.app.outputs.present == 'true'
+        uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: ${{ matrix.target }}
+      - if: steps.app.outputs.present == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-${{ matrix.target }}
+      - if: steps.app.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the frontend
+        if: steps.app.outputs.present == 'true'
+        working-directory: apps/desktop
+        run: npm ci
+      - name: Build the Tauri bundles
+        if: steps.app.outputs.present == 'true'
+        uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: apps/desktop
+          args: --target ${{ matrix.target }} ${{ matrix.args }}
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: "desktop-[platform]-[arch]-[bundle]"
+      - name: Collect the bundles
+        if: steps.app.outputs.present == 'true'
+        shell: bash
+        run: |
+          mkdir -p dist
+          find target/${{ matrix.target }}/release/bundle -type f \
+            \( -name '*.msi' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' \) \
+            -exec cp {} dist/ \;
+          ls dist
+      - if: steps.app.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: [cli, extension, desktop]
+    # Publish when the required CLI builds and the extension are done. The arm64 Windows build and the desktop bundles are best effort.
+    if: ${{ !cancelled() && needs.cli.result == 'success' && needs.extension.result == 'success' && needs.desktop.result != 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: SHA256SUMS, install scripts and package manifests
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cp packaging/install.sh packaging/install.ps1 dist/
+          (cd dist && sha256sum -- * > SHA256SUMS)
+          bash packaging/render-packages.sh "$version" dist packages
+          (cd packages && zip -r ../dist/aivory-warden-packages.zip winget homebrew scoop)
+          ls -l dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            Aivory Warden is free and MIT licensed. Check the SHA-256 of a download against `SHA256SUMS`.
+
+            - Windows: `winget install Aivory.Warden` or `scoop install aivory-warden`
+            - macOS and Linux: `brew install aivorynet/tap/aivory-warden`
+            - Script: `curl -fsSL https://github.com/aivorynet/warden/releases/latest/download/install.sh | sh`
+            - Desktop app: the `.msi`, `.dmg`, `.AppImage` or `.deb` file below.
+            - Edge extension: `aivory-warden-edge-extension.zip`.

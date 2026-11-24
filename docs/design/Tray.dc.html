@@ -8,43 +8,46 @@
 <body>
 <x-dc>
 <helmet>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&amp;family=Instrument+Sans:wght@400;600&amp;family=Martian+Mono:wght@400;600&amp;display=swap">
 <style>
 body{margin:0}
-a{color:#B6F36A}a:hover{color:#D4FA9E}
+a{color:#111213}a:hover{color:#0B6B34}
 </style>
 </helmet>
-<div style="width: 440px; height: 640px; box-sizing: border-box; padding: 24px; background: #1B2230; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #EDEAE3; display: flex; flex-direction: column; gap: 16px">
-  <div role="menu" aria-label="Warden tray menu" style="background: #0D1624; border: 1px solid #2B3B55; border-radius: 10px; padding: 6px; display: flex; flex-direction: column; font-size: 14px">
-    <div style="padding: 10px 12px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #1F2D44"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{accent}}"></span><span style="font-weight: 600">Warden</span><span style="color: #9AA3B2; margin-left: auto">unlocked</span></div>
-    <button type="button" role="menuitem" style="min-height: 40px; text-align: left; padding: 0 12px; border: 0; background: transparent; color: #EDEAE3; font: inherit">Open Warden</button>
-    <button type="button" role="menuitem" style="min-height: 40px; text-align: left; padding: 0 12px; border: 0; background: transparent; color: #EDEAE3; font: inherit; display: flex; align-items: center; justify-content: space-between">Rotate due tokens <span style="color: #F5B949; font-size: 12px">1 due</span></button>
-    <button type="button" role="menuitem" style="min-height: 40px; text-align: left; padding: 0 12px; border: 0; background: transparent; color: #EDEAE3; font: inherit; display: flex; align-items: center; justify-content: space-between">Inbox <span style="color: #9AA3B2; font-size: 12px">2 captured</span></button>
-    <button type="button" role="menuitem" style="min-height: 40px; text-align: left; padding: 0 12px; border: 0; background: transparent; color: #EDEAE3; font: inherit">Lock now</button>
-    <button type="button" role="menuitem" style="min-height: 40px; text-align: left; padding: 0 12px; border: 0; border-top: 1px solid #1F2D44; background: transparent; color: #9AA3B2; font: inherit">Quit desktop app (daemon keeps running)</button>
+<div style="width: 440px; height: 640px; box-sizing: border-box; padding: 24px; background: #C9CACB; font-family: 'Instrument Sans', system-ui, sans-serif; color: #111213; display: flex; flex-direction: column; gap: 14px">
+  <div role="menu" aria-label="Warden tray menu" style="background: #F2F2F1; border: 2px solid #111213; display: flex; flex-direction: column; font-size: 15px">
+    <div style="padding: 10px 14px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #111213; font-family: 'Martian Mono', monospace; font-size: 12px; font-weight: 600"><span style="width: 10px; height: 10px; background: {{accent}}; border: 1px solid #111213"></span>WARDEN<span style="margin-left: auto; font-weight: 400; color: #54575B">UNLOCKED</span></div>
+    <button type="button" role="menuitem" style="min-height: 40px; text-align: left; padding: 0 14px; border: 0; background: transparent; color: #111213; font: inherit">Open Warden</button>
+    <button type="button" role="menuitem" style="min-height: 40px; text-align: left; padding: 0 14px; border: 0; background: transparent; color: #111213; font: inherit; display: flex; align-items: center; justify-content: space-between">Rotate due tokens <span style="font-family: 'Martian Mono', monospace; font-size: 11px; font-weight: 600; background: {{accent}}; padding: 1px 6px">1 DUE</span></button>
+    <button type="button" role="menuitem" style="min-height: 40px; text-align: left; padding: 0 14px; border: 0; background: transparent; color: #111213; font: inherit; display: flex; align-items: center; justify-content: space-between">Inbox <span style="font-family: 'Martian Mono', monospace; font-size: 11px; color: #54575B">2 CAPTURED</span></button>
+    <button type="button" role="menuitem" style="min-height: 40px; text-align: left; padding: 0 14px; border: 0; background: transparent; color: #111213; font: inherit">Lock now</button>
+    <button type="button" role="menuitem" style="min-height: 40px; text-align: left; padding: 0 14px; border: 0; border-top: 1px solid #A9ABAD; background: transparent; color: #54575B; font: inherit; font-size: 14px">Quit app (rotation keeps running)</button>
   </div>
 
-  <div role="status" style="background: #0D1624; border: 1px solid #2B3B55; border-radius: 10px; padding: 14px; display: flex; gap: 12px">
-    <span style="width: 4px; border-radius: 2px; background: {{accent}}"></span>
-    <div style="display: flex; flex-direction: column; gap: 4px; font-size: 13px"><span style="font-weight: 600; font-size: 14px">gitlab-ci-deploy rotated</span><span style="color: #C9CED8">2 places updated and checked. Old token revoked.</span></div>
+  <div role="status" style="background: #F2F2F1; border: 2px solid #111213; display: flex">
+    <span style="width: 10px; background: {{accent}}; border-right: 2px solid #111213"></span>
+    <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 2px"><span style="font-family: 'Martian Mono', monospace; font-size: 11px; font-weight: 600">ROTATED</span><span style="font-weight: 600">gitlab-ci-deploy</span><span style="font-size: 13px">2 places written and checked. Old token revoked.</span></div>
   </div>
 
-  <div role="alert" style="background: #0D1624; border: 1px solid #5A2E2E; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
-    <div style="display: flex; flex-direction: column; gap: 4px; font-size: 13px"><span style="font-weight: 600; font-size: 14px; color: #FF8A80">openai-agents-prod rotation failed</span><span style="color: #C9CED8">Host build-02 refused the SSH key. The new token is safe in the vault. Next try 14:20.</span></div>
-    <div style="display: flex; gap: 8px"><button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 6px; border: 1px solid #2B3B55; background: transparent; color: #EDEAE3; font: inherit; font-size: 13px">Open</button><button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 6px; border: 1px solid #2B3B55; background: transparent; color: #EDEAE3; font: inherit; font-size: 13px">Retry now</button></div>
+  <div role="alert" style="background: #F2F2F1; border: 2px solid #C63D0C; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px">
+    <span style="font-family: 'Martian Mono', monospace; font-size: 11px; font-weight: 600; color: #C63D0C">ROTATION FAILED</span>
+    <span style="font-weight: 600">openai-agents-prod</span>
+    <span style="font-size: 13px">build-02 refused the SSH key. The new token is safe in the vault. Next try 14:20.</span>
+    <div style="display: flex; gap: 8px"><button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 0; border: 2px solid #111213; background: transparent; color: #111213; font: inherit; font-size: 13px; font-weight: 600">Open</button><button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 0; border: 2px solid #111213; background: #111213; color: #F2F2F1; font: inherit; font-size: 13px; font-weight: 600">Retry now</button></div>
   </div>
 
-  <div role="status" style="background: #FAF6EF; color: #0D0D0E; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
-    <span style="font-weight: 600; font-size: 14px">Warden rotated 9 tokens this week</span>
-    <span style="font-size: 13px; color: #4A4A4A">A coffee for 2026 keeps it free and open source. This note comes once a week until you pay once this year.</span>
-    <div style="display: flex; gap: 8px"><a href="https://aivory.net/coffee" style="min-height: 36px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: 6px; background: #0D0D0E; color: #FAF6EF; text-decoration: none; font-size: 13px; font-weight: 600">Buy a coffee</a><button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 6px; border: 1px solid #0D0D0E; background: transparent; color: #0D0D0E; font: inherit; font-size: 13px">Later</button></div>
+  <div role="status" style="background: #F2F2F1; border: 2px dashed #111213; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px">
+    <span style="font-family: 'Martian Mono', monospace; font-size: 11px; font-weight: 600">COFFEE · ONCE A WEEK</span>
+    <span style="font-weight: 600">Warden rotated 9 tokens this week</span>
+    <span style="font-size: 13px">One coffee for 2026 keeps it free and open source. This note stops when you paid once this year.</span>
+    <div style="display: flex; gap: 8px"><a href="https://aivory.net/coffee" style="min-height: 36px; display: inline-flex; align-items: center; padding: 0 12px; border: 2px solid #111213; background: {{accent}}; text-decoration: none; font-size: 13px; font-weight: 600">Buy a coffee</a><button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 0; border: 2px solid #111213; background: transparent; color: #111213; font: inherit; font-size: 13px">Later</button></div>
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#B6F36A","options":["#B6F36A","#7FD6FF","#F5B949"]},"$preview":{"width":440,"height":640}}'>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#22C55E","options":["#22C55E","#1F9D55","#FF5A1F"]},"$preview":{"width":440,"height":640}}'>
 class Component extends DCLogic {
   renderVals() {
-    return { accent: this.props.accent ?? '#B6F36A' };
+    return { accent: this.props.accent ?? '#22C55E' };
   }
 }
 </script>

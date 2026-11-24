@@ -8,111 +8,106 @@
 <body>
 <x-dc>
 <helmet>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&amp;family=Instrument+Sans:wght@400;600&amp;family=Martian+Mono:wght@400;600&amp;display=swap">
 <style>
-body{margin:0;background:#05010D}
-a{color:#B6F36A}a:hover{color:#D4FA9E}
+body{margin:0;background:#DCDDDD}
+a{color:#111213}a:hover{color:#C63D0C}
 </style>
 </helmet>
-<div style="min-height: 820px; background: #05010D; color: #EDEAE3; font-family: 'IBM Plex Sans', system-ui, sans-serif; display: flex; flex-wrap: wrap">
-  <nav aria-label="Main" style="flex: 1 1 220px; max-width: 260px; min-width: 200px; background: #0D1624; border-right: 1px solid #1F2D44; padding: 24px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px">
-    <div style="display: flex; align-items: center; gap: 10px; padding: 0 8px">
-      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M14 2 L24 6 V13 C24 19.5 19.8 24.2 14 26 C8.2 24.2 4 19.5 4 13 V6 Z" stroke="{{accent}}" stroke-width="2" stroke-linejoin="round"></path><circle cx="14" cy="12" r="3" stroke="{{accent}}" stroke-width="2"></circle><path d="M14 15 V20" stroke="{{accent}}" stroke-width="2" stroke-linecap="round"></path></svg>
-      <div style="display: flex; flex-direction: column; line-height: 1.1">
-        <span style="font-size: 11px; letter-spacing: 0.14em; color: #9AA3B2; font-weight: 600">AIVORY</span>
-        <span style="font-size: 18px; font-weight: 700">Warden</span>
-      </div>
+<div style="min-height: 820px; background: #DCDDDD; color: #111213; font-family: 'Instrument Sans', system-ui, sans-serif; display: flex; flex-direction: column">
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 24px; padding: 16px 32px; border-bottom: 1px solid #111213">
+    <div style="display: flex; align-items: center; gap: 14px; margin-right: auto">
+      <svg role="img" aria-label="AIVory" width="64" height="22" viewBox="0 0 403 138"><path d="M-0,136.215l13.916,0l62.676,-111.474l62.578,111.474l13.968,0l-76.484,-136.215l-76.654,136.215Z" fill="#111213"></path><path d="M200.399,136.215l11.439,0l-0.026,-136.215l-11.413,0l0,136.215Z" fill="#111213"></path><path d="M325.722,111.475l-62.661,-111.436l-13.932,-0.039l76.593,136.215l76.593,-136.215l-13.917,0l-62.676,111.475Z" fill="#111213"></path></svg>
+      <span style="width: 2px; height: 20px; background: #111213"></span>
+      <span style="font-family: 'Martian Mono', monospace; font-size: 15px; font-weight: 600; letter-spacing: 0.1em">WARDEN</span>
     </div>
-    <div style="display: flex; flex-direction: column; gap: 4px">
-      <a href="Main.dc.html" style="display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 12px; border-radius: 8px; background: #172438; color: #EDEAE3; text-decoration: none; font-weight: 600">Tokens <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #9AA3B2">14</span></a>
-      <a href="Extension.dc.html" style="display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 12px; border-radius: 8px; color: #C9CED8; text-decoration: none">Inbox <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; background: {{accent}}; color: #05010D; border-radius: 999px; padding: 1px 8px; font-weight: 600">2</span></a>
-      <a href="Detail.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: #C9CED8; text-decoration: none">Audit log</a>
-      <a href="Settings.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: #C9CED8; text-decoration: none">Devices</a>
-      <a href="Settings.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: #C9CED8; text-decoration: none">Settings</a>
-    </div>
-    <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid #1F2D44; border-radius: 10px; font-size: 13px">
-      <div style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{accent}}"></span>Daemon running</div>
-      <div style="display: flex; align-items: center; gap: 8px; color: #9AA3B2"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><rect x="2.5" y="6" width="9" height="6.5" rx="1.5" stroke="#9AA3B2" stroke-width="1.4"></rect><path d="M4.5 6 V4.5 a2.5 2.5 0 0 1 5 0" stroke="#9AA3B2" stroke-width="1.4"></path></svg>Unlocked · keychain cache</div>
-      <div style="color: #9AA3B2">Device: paul-laptop (rotator)</div>
-    </div>
-  </nav>
+    <nav aria-label="Main" style="display: flex; flex-wrap: wrap; gap: 4px; font-family: 'Martian Mono', monospace; font-size: 12px">
+      <a href="Main.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; padding: 0 12px; text-decoration: none; border-bottom: 3px solid #111213; font-weight: 600">TOKENS</a>
+      <a href="Extension.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; text-decoration: none">INBOX <span style="background: {{accent}}; color: #111213; padding: 0 6px; font-weight: 600">2</span></a>
+      <a href="Detail.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; padding: 0 12px; text-decoration: none">AUDIT</a>
+      <a href="Settings.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; padding: 0 12px; text-decoration: none">SETTINGS</a>
+    </nav>
+    <span style="font-family: 'Martian Mono', monospace; font-size: 11px; color: #54575B">UNLOCKED · PAUL-LAPTOP</span>
+  </header>
 
-  <main style="flex: 999 1 560px; min-width: 0; padding: 32px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px">
-    <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px">
-      <div style="display: flex; flex-direction: column; gap: 4px; margin-right: auto">
-        <h1 style="margin: 0; font-size: 28px; font-weight: 700">Tokens</h1>
-        <p style="margin: 0; color: #9AA3B2; font-size: 14px">Default rotation every 30 days. Admin tokens rotate themselves.</p>
-      </div>
-      <label style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; background: #0D1624; border: 1px solid #1F2D44; border-radius: 8px; color: #9AA3B2; font-size: 14px">
-        <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search tokens</span>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.5" stroke="#9AA3B2" stroke-width="1.5"></circle><path d="M10.5 10.5 L14 14" stroke="#9AA3B2" stroke-width="1.5" stroke-linecap="round"></path></svg>
-        <input type="search" placeholder="Search name, provider, file" style="background: transparent; border: 0; outline: none; color: #EDEAE3; font: inherit; width: 220px">
-      </label>
-      <a href="AddWizard.dc.html" style="display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px; border-radius: 8px; background: {{accent}}; color: #05010D; font-weight: 600; text-decoration: none">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 2 V12 M2 7 H12" stroke="#05010D" stroke-width="2" stroke-linecap="round"></path></svg>Add token</a>
-    </header>
-
-    <section aria-label="Summary" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
-      <div style="background: #0D1624; border: 1px solid #1F2D44; border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 6px"><span style="color: #9AA3B2; font-size: 13px">Managed</span><span style="font-size: 26px; font-weight: 700">14</span></div>
-      <div style="background: #0D1624; border: 1px solid #1F2D44; border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 6px"><span style="color: #9AA3B2; font-size: 13px">Rotate this week</span><span style="font-size: 26px; font-weight: 700">3</span></div>
-      <div style="background: #0D1624; border: 1px solid #1F2D44; border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 6px"><span style="color: #9AA3B2; font-size: 13px">Need attention</span><span style="font-size: 26px; font-weight: 700; color: #FF8A80">1</span></div>
-      <div style="background: #0D1624; border: 1px solid #1F2D44; border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 6px"><span style="color: #9AA3B2; font-size: 13px">Places updated</span><span style="font-size: 26px; font-weight: 700">31</span></div>
-    </section>
-
-    <div style="overflow-x: auto; background: #0D1624; border: 1px solid #1F2D44; border-radius: 12px">
-      <table style="width: 100%; min-width: 860px; border-collapse: collapse; font-size: 14px">
-        <thead>
-          <tr style="text-align: left; color: #9AA3B2; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase">
-            <th style="padding: 14px 16px; font-weight: 600">Name</th>
-            <th style="padding: 14px 16px; font-weight: 600">Provider</th>
-            <th style="padding: 14px 16px; font-weight: 600">Kind</th>
-            <th style="padding: 14px 16px; font-weight: 600">Status</th>
-            <th style="padding: 14px 16px; font-weight: 600">Next rotation</th>
-            <th style="padding: 14px 16px; font-weight: 600">Expires</th>
-            <th style="padding: 14px 16px; font-weight: 600; text-align: right">Places</th>
-          </tr>
-        </thead>
-        <tbody>
-          <sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
-            <tr style="border-top: 1px solid #1F2D44">
-              <td style="padding: 14px 16px"><a href="Detail.dc.html" style="color: #EDEAE3; text-decoration: none; font-family: 'JetBrains Mono', monospace; font-size: 13px">{{r.name}}</a></td>
-              <td style="padding: 14px 16px; color: #C9CED8">{{r.provider}}</td>
-              <td style="padding: 14px 16px; color: #9AA3B2">{{r.kind}}</td>
-              <td style="padding: 14px 16px"><span style="{{r.pill}}">{{r.status}}</span></td>
-              <td style="padding: 14px 16px; color: #C9CED8">{{r.next}}</td>
-              <td style="padding: 14px 16px; color: #9AA3B2; font-family: 'JetBrains Mono', monospace; font-size: 13px">{{r.expires}}</td>
-              <td style="padding: 14px 16px; text-align: right; font-family: 'JetBrains Mono', monospace">{{r.sinks}}</td>
+  <div style="display: flex; flex-wrap: wrap; gap: 48px; padding: 40px 56px; box-sizing: border-box">
+    <main style="flex: 999 1 620px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+      <span style="font-family: 'Martian Mono', monospace; font-size: 12px; color: #54575B">VAULT · 14 TOKENS · DEFAULT EVERY 30 DAYS</span>
+      <h1 style="margin: 0; font-family: 'Anybody', sans-serif; font-weight: 900; font-stretch: 140%; font-variation-settings: 'wdth' 140; font-size: 56px; line-height: 1; letter-spacing: -0.02em">Your tokens</h1>
+      <p style="margin: 0; font-size: 17px">Warden rotates each token on schedule and writes the new value to every place that uses it.</p>
+      <div style="height: 8px; background: #111213"></div>
+      <div style="overflow-x: auto">
+        <table style="width: 100%; min-width: 760px; border-collapse: collapse">
+          <thead>
+            <tr style="text-align: left; font-family: 'Martian Mono', monospace; font-size: 12px">
+              <th style="padding: 10px 8px; font-weight: 600; border-bottom: 1px solid #111213">ID</th>
+              <th style="padding: 10px 8px; font-weight: 600; border-bottom: 1px solid #111213">TOKEN</th>
+              <th style="padding: 10px 8px; font-weight: 600; border-bottom: 1px solid #111213">NEXT ROTATION</th>
+              <th style="padding: 10px 8px; font-weight: 600; border-bottom: 1px solid #111213; text-align: right">PLACES</th>
+              <th style="padding: 10px 8px; font-weight: 600; border-bottom: 1px solid #111213">STATUS</th>
             </tr>
-          </sc-for>
-        </tbody>
-      </table>
-    </div>
-    <p style="margin: 0; color: #9AA3B2; font-size: 13px">Coffee keeps Warden free and open source. <a href="Settings.dc.html">Buy a coffee for 2026</a></p>
-  </main>
+          </thead>
+          <tbody>
+            <sc-for list="{{rows}}" as="r" hint-placeholder-count="7">
+              <tr>
+                <td style="padding: 12px 8px; border-bottom: 1px solid #A9ABAD; font-family: 'Martian Mono', monospace; font-size: 12px; color: #54575B">{{r.id}}</td>
+                <td style="padding: 12px 8px; border-bottom: 1px solid #A9ABAD">
+                  <a href="Detail.dc.html" style="display: block; font-weight: 600; font-size: 17px; text-decoration: none">{{r.name}}</a>
+                  <span style="font-family: 'Martian Mono', monospace; font-size: 12px; color: #54575B">{{r.meta}}</span>
+                </td>
+                <td style="padding: 12px 8px; border-bottom: 1px solid #A9ABAD; font-family: 'Martian Mono', monospace; font-size: 13px">{{r.next}}</td>
+                <td style="padding: 12px 8px; border-bottom: 1px solid #A9ABAD; font-family: 'Martian Mono', monospace; font-weight: 600; text-align: right">{{r.sinks}}</td>
+                <td style="padding: 12px 8px; border-bottom: 1px solid #A9ABAD"><span style="{{r.stamp}}">{{r.status}}</span></td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+    </main>
+
+    <aside style="flex: 1 1 300px; max-width: 380px; display: flex; flex-direction: column; gap: 16px">
+      <span style="font-family: 'Martian Mono', monospace; font-size: 12px; color: #54575B; padding-bottom: 10px; border-bottom: 1px solid #111213">THIS WEEK</span>
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <span style="font-family: 'Anybody', sans-serif; font-weight: 900; font-stretch: 140%; font-variation-settings: 'wdth' 140; font-size: 48px; line-height: 1">3 due</span>
+        <span style="font-size: 14px">9 rotated · 31 places written · 1 needs you</span>
+      </div>
+      <div style="border: 2px solid #C63D0C; background: #F2F2F1; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px">
+        <span style="font-family: 'Martian Mono', monospace; font-size: 11px; color: #C63D0C; font-weight: 600">NEEDS YOU</span>
+        <span style="font-weight: 600">openai-agents-prod</span>
+        <span style="font-size: 13px">build-02 refused the SSH key. The new token is safe in the vault.</span>
+      </div>
+      <span style="font-family: 'Martian Mono', monospace; font-size: 12px; color: #54575B; padding: 16px 0 10px; border-bottom: 1px solid #111213">DAEMON</span>
+      <div style="display: flex; justify-content: space-between; font-size: 15px"><span>Background rotation</span><span style="font-family: 'Martian Mono', monospace; font-weight: 600">ON</span></div>
+      <div style="display: flex; justify-content: space-between; font-size: 15px"><span>Rotation window</span><span style="font-family: 'Martian Mono', monospace">02:00–05:00</span></div>
+      <a href="AddWizard.dc.html" style="margin-top: 8px; display: flex; align-items: stretch; min-height: 64px; text-decoration: none">
+        <span style="flex: 1; display: flex; align-items: center; padding: 0 20px; background: #111213; color: #F2F2F1; font-family: 'Anybody', sans-serif; font-weight: 800; font-stretch: 130%; font-variation-settings: 'wdth' 130; font-size: 20px">Add a token</span>
+        <span style="width: 64px; display: flex; align-items: center; justify-content: center; background: {{accent}}"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M4 11 H18 M12 5 L18 11 L12 17" stroke="#111213" stroke-width="2.4"></path></svg></span>
+      </a>
+    </aside>
+  </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#B6F36A","options":["#B6F36A","#7FD6FF","#F5B949"]},"$preview":{"width":1280,"height":820}}'>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#22C55E","options":["#22C55E","#1F9D55","#FF5A1F"]},"$preview":{"width":1280,"height":820}}'>
 class Component extends DCLogic {
   renderVals() {
-    const accent = this.props.accent ?? '#B6F36A';
-    const base = 'display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;';
-    const pills = {
-      Healthy: base + 'background:rgba(182,243,106,0.12);color:#B6F36A;',
-      Due: base + 'background:rgba(245,185,73,0.14);color:#F5B949;',
-      Rotating: base + 'background:rgba(127,178,255,0.14);color:#9CC3FF;',
-      Failed: base + 'background:rgba(255,138,128,0.14);color:#FF8A80;',
-      Reminder: base + 'background:rgba(201,206,216,0.10);color:#C9CED8;'
+    const accent = this.props.accent ?? '#22C55E';
+    const base = "display:inline-block;padding:6px 12px;font-family:'Martian Mono',monospace;font-size:12px;font-weight:600;letter-spacing:0.04em;white-space:nowrap;";
+    const stamps = {
+      HEALTHY: base + 'border:2px solid #111213;color:#111213;',
+      DUE: base + 'border:2px solid #111213;background:' + accent + ';color:#111213;',
+      ROTATING: base + 'border:2px dashed #111213;color:#111213;',
+      FAILED: base + 'border:2px solid #C63D0C;color:#C63D0C;background:#F2F2F1;',
+      REMINDER: base + 'border:2px solid #8A8C8F;color:#54575B;'
     };
     const rows = [
-      ['gitlab-admin', 'GitLab', 'Admin', 'Healthy', 'in 12 days', '2027-02-01', 3],
-      ['gitlab-ci-deploy', 'GitLab', 'Derived', 'Healthy', 'in 3 days', '2026-12-27', 2],
-      ['aws-ops-admin', 'AWS IAM', 'Admin', 'Healthy', 'in 21 days', 'none', 1],
-      ['aws-backup-writer', 'AWS IAM', 'Derived', 'Rotating', 'now', 'none', 4],
-      ['cloudflare-dns', 'Cloudflare', 'Admin', 'Due', 'in 18 hours', '2026-12-01', 2],
-      ['openai-admin', 'OpenAI', 'Admin', 'Healthy', 'in 27 days', 'none', 0],
-      ['openai-agents-prod', 'OpenAI', 'Derived', 'Failed', 'retry 14:20', 'none', 3],
-      ['github-actions-pat', 'Manual', 'Admin', 'Reminder', 'renew by 5 Dec', '2026-12-05', 1]
-    ].map(([name, provider, kind, status, next, expires, sinks]) => ({ name, provider, kind, status, next, expires, sinks, pill: pills[status] }));
+      ['AIVW-0001', 'gitlab-admin', 'GitLab · admin · self-rotates', 'in 12 days', 3, 'HEALTHY'],
+      ['AIVW-0002', 'gitlab-ci-deploy', 'GitLab · project token', 'in 3 days', 2, 'HEALTHY'],
+      ['AIVW-0003', 'cloudflare-dns', 'Cloudflare · admin', 'in 18 h', 2, 'DUE'],
+      ['AIVW-0004', 'aws-backup-writer', 'AWS IAM · access key', 'now', 4, 'ROTATING'],
+      ['AIVW-0005', 'openai-agents-prod', 'OpenAI · service account', 'retry 14:20', 3, 'FAILED'],
+      ['AIVW-0006', 'aws-ops-admin', 'AWS IAM · admin · self-rotates', 'in 21 days', 1, 'HEALTHY'],
+      ['AIVW-0007', 'github-actions-pat', 'GitHub · manual · ends 5 Dec', 'renew by 5 Dec', 1, 'REMINDER']
+    ].map(([id, name, meta, next, sinks, status]) => ({ id, name, meta, next, sinks, status, stamp: stamps[status] }));
     return { accent, rows };
   }
 }

@@ -8,58 +8,62 @@
 <body>
 <x-dc>
 <helmet>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&amp;family=Instrument+Sans:wght@400;600&amp;family=Martian+Mono:wght@400;600&amp;display=swap">
 <style>
 body{margin:0}
-a{color:#B6F36A}a:hover{color:#D4FA9E}
+a{color:#111213}a:hover{color:#0B6B34}
 </style>
 </helmet>
-<div style="width: 380px; height: 640px; box-sizing: border-box; background: #0D1624; color: #EDEAE3; font-family: 'IBM Plex Sans', system-ui, sans-serif; display: flex; flex-direction: column">
-  <header style="display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #1F2D44">
-    <svg width="22" height="22" viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M14 2 L24 6 V13 C24 19.5 19.8 24.2 14 26 C8.2 24.2 4 19.5 4 13 V6 Z" stroke="{{accent}}" stroke-width="2" stroke-linejoin="round"></path><circle cx="14" cy="12" r="3" stroke="{{accent}}" stroke-width="2"></circle></svg>
-    <span style="font-weight: 700">Save to Warden</span>
-    <span style="margin-left: auto; font-size: 12px; color: #B6F36A">connected</span>
+<div style="width: 380px; height: 640px; box-sizing: border-box; background: #DCDDDD; color: #111213; font-family: 'Instrument Sans', system-ui, sans-serif; display: flex; flex-direction: column">
+  <header style="display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #111213">
+    <svg role="img" aria-label="AIVory" width="44" height="15" viewBox="0 0 403 138"><path d="M-0,136.215l13.916,0l62.676,-111.474l62.578,111.474l13.968,0l-76.484,-136.215l-76.654,136.215Z" fill="#111213"></path><path d="M200.399,136.215l11.439,0l-0.026,-136.215l-11.413,0l0,136.215Z" fill="#111213"></path><path d="M325.722,111.475l-62.661,-111.436l-13.932,-0.039l76.593,136.215l76.593,-136.215l-13.917,0l-62.676,111.475Z" fill="#111213"></path></svg>
+    <span style="width: 2px; height: 14px; background: #111213"></span>
+    <span style="font-family: 'Martian Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.1em">WARDEN</span>
+    <span style="margin-left: auto; font-family: 'Martian Mono', monospace; font-size: 10px; display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; background: {{accent}}; border: 1px solid #111213"></span>CONNECTED</span>
   </header>
 
-  <form style="padding: 16px; display: flex; flex-direction: column; gap: 12px; border-bottom: 1px solid #1F2D44">
-    <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #9AA3B2">Page
-      <span style="font-family: 'JetBrains Mono', monospace; color: #C9CED8; font-size: 12px">gitlab.com · Access tokens</span>
+  <form style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+    <h1 style="margin: 0; font-family: 'Anybody', sans-serif; font-weight: 900; font-stretch: 140%; font-variation-settings: 'wdth' 140; font-size: 26px; line-height: 1">Save token</h1>
+    <span style="font-family: 'Martian Mono', monospace; font-size: 11px; color: #54575B">GITLAB.COM · ACCESS TOKENS</span>
+    <div style="height: 6px; background: #111213"></div>
+    <div style="display: flex; flex-direction: column; gap: 4px; font-family: 'Martian Mono', monospace; font-size: 10px; font-weight: 600">FOUND ON THIS PAGE
+      <span style="min-height: 40px; display: flex; align-items: center; padding: 0 10px; border: 2px dashed #111213; font-size: 13px; font-weight: 400">glpat-••••••••••••••7Qx2</span>
     </div>
-    <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #9AA3B2">Value found on this page
-      <span style="min-height: 40px; display: flex; align-items: center; padding: 0 10px; border-radius: 8px; background: #05010D; border: 1px solid #2B3B55; font-family: 'JetBrains Mono', monospace; color: #EDEAE3; font-size: 13px">glpat-••••••••••••••••7Qx2</span>
-    </div>
-    <label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #9AA3B2">Name
-      <input value="gitlab-admin" style="min-height: 40px; background: #05010D; color: #EDEAE3; border: 1px solid #2B3B55; border-radius: 8px; padding: 0 10px; font-family: 'JetBrains Mono', monospace; font-size: 13px">
+    <label style="display: flex; flex-direction: column; gap: 4px; font-family: 'Martian Mono', monospace; font-size: 10px; font-weight: 600">NAME
+      <input value="gitlab-admin" style="min-height: 40px; background: #F2F2F1; color: #111213; border: 2px solid #111213; border-radius: 0; padding: 0 10px; font-family: 'Martian Mono', monospace; font-size: 13px">
     </label>
     <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
-      <label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #9AA3B2">Provider
-        <select style="min-height: 40px; background: #05010D; color: #EDEAE3; border: 1px solid #2B3B55; border-radius: 8px; padding: 0 8px; font: inherit; font-size: 13px"><option selected>GitLab</option><option>Cloudflare</option><option>OpenAI</option><option>Other</option></select>
+      <label style="display: flex; flex-direction: column; gap: 4px; font-family: 'Martian Mono', monospace; font-size: 10px; font-weight: 600">PROVIDER
+        <select style="min-height: 40px; background: #F2F2F1; color: #111213; border: 2px solid #111213; border-radius: 0; padding: 0 8px; font-family: 'Instrument Sans', sans-serif; font-size: 14px"><option selected>GitLab</option><option>Cloudflare</option><option>OpenAI</option><option>Other</option></select>
       </label>
-      <label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #9AA3B2">Expires
-        <input value="2027-02-01" style="min-height: 40px; background: #05010D; color: #EDEAE3; border: 1px solid #2B3B55; border-radius: 8px; padding: 0 10px; font: inherit; font-size: 13px">
+      <label style="display: flex; flex-direction: column; gap: 4px; font-family: 'Martian Mono', monospace; font-size: 10px; font-weight: 600">ENDS
+        <input value="2027-02-01" style="min-height: 40px; background: #F2F2F1; color: #111213; border: 2px solid #111213; border-radius: 0; padding: 0 10px; font-family: 'Martian Mono', monospace; font-size: 13px">
       </label>
     </div>
-    <button type="submit" style="min-height: 44px; border-radius: 8px; border: 0; background: {{accent}}; color: #05010D; font: inherit; font-weight: 700">Send to inbox</button>
-    <p style="margin: 0; font-size: 12px; color: #9AA3B2">You confirm the token in the Warden app. The page cannot add tokens by itself.</p>
+    <button type="submit" style="display: flex; align-items: stretch; min-height: 52px; padding: 0; border: 0; background: transparent; cursor: pointer">
+      <span style="flex: 1; display: flex; align-items: center; padding: 0 16px; background: #111213; color: #F2F2F1; font-family: 'Anybody', sans-serif; font-weight: 800; font-stretch: 130%; font-variation-settings: 'wdth' 130; font-size: 17px">Send to inbox</span>
+      <span style="width: 52px; display: flex; align-items: center; justify-content: center; background: {{accent}}"><svg width="18" height="18" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M4 11 H18 M12 5 L18 11 L12 17" stroke="#111213" stroke-width="2.4"></path></svg></span>
+    </button>
+    <p style="margin: 0; font-size: 12px; color: #54575B">You confirm it in the Warden app. A page cannot add a token by itself.</p>
   </form>
 
-  <section aria-labelledby="inb" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
-    <h2 id="inb" style="margin: 0; font-size: 13px; color: #9AA3B2; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase">Waiting in inbox</h2>
-    <div style="display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 12px; border: 1px solid #1F2D44; border-radius: 8px">
-      <div style="display: flex; flex-direction: column; margin-right: auto"><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">cloudflare-dns</span><span style="font-size: 12px; color: #9AA3B2">dash.cloudflare.com · 2 min ago</span></div>
-      <span style="font-size: 12px; color: #F5B949">confirm in app</span>
+  <section aria-labelledby="inb" style="padding: 0 16px 16px; display: flex; flex-direction: column">
+    <h2 id="inb" style="margin: 0; padding-bottom: 8px; border-bottom: 1px solid #111213; font-family: 'Martian Mono', monospace; font-size: 11px; font-weight: 600">IN THE INBOX · 2</h2>
+    <div style="display: flex; align-items: center; gap: 10px; min-height: 48px; border-bottom: 1px solid #A9ABAD">
+      <span style="display: flex; flex-direction: column; margin-right: auto"><span style="font-weight: 600; font-size: 14px">cloudflare-dns</span><span style="font-family: 'Martian Mono', monospace; font-size: 10px; color: #54575B">DASH.CLOUDFLARE.COM · 2 MIN</span></span>
+      <span style="padding: 3px 8px; border: 2px solid #111213; font-family: 'Martian Mono', monospace; font-size: 10px; font-weight: 600">WAITING</span>
     </div>
-    <div style="display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 12px; border: 1px solid #1F2D44; border-radius: 8px">
-      <div style="display: flex; flex-direction: column; margin-right: auto"><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">openai-admin</span><span style="font-size: 12px; color: #9AA3B2">platform.openai.com · 1 h ago</span></div>
-      <span style="font-size: 12px; color: #F5B949">confirm in app</span>
+    <div style="display: flex; align-items: center; gap: 10px; min-height: 48px; border-bottom: 1px solid #A9ABAD">
+      <span style="display: flex; flex-direction: column; margin-right: auto"><span style="font-weight: 600; font-size: 14px">openai-admin</span><span style="font-family: 'Martian Mono', monospace; font-size: 10px; color: #54575B">PLATFORM.OPENAI.COM · 1 H</span></span>
+      <span style="padding: 3px 8px; border: 2px solid #111213; font-family: 'Martian Mono', monospace; font-size: 10px; font-weight: 600">WAITING</span>
     </div>
   </section>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#B6F36A","options":["#B6F36A","#7FD6FF","#F5B949"]},"$preview":{"width":380,"height":640}}'>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#22C55E","options":["#22C55E","#1F9D55","#FF5A1F"]},"$preview":{"width":380,"height":640}}'>
 class Component extends DCLogic {
   renderVals() {
-    return { accent: this.props.accent ?? '#B6F36A' };
+    return { accent: this.props.accent ?? '#22C55E' };
   }
 }
 </script>

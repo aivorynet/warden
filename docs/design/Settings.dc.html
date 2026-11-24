@@ -8,82 +8,82 @@
 <body>
 <x-dc>
 <helmet>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&amp;family=Instrument+Sans:wght@400;600&amp;family=Martian+Mono:wght@400;600&amp;display=swap">
 <style>
-body{margin:0;background:#05010D}
-a{color:#B6F36A}a:hover{color:#D4FA9E}
+body{margin:0;background:#DCDDDD}
+a{color:#111213}a:hover{color:#0B6B34}
 </style>
 </helmet>
-<div style="min-height: 960px; background: #05010D; color: #EDEAE3; font-family: 'IBM Plex Sans', system-ui, sans-serif; display: flex; flex-wrap: wrap">
-  <nav aria-label="Main" style="flex: 1 1 220px; max-width: 260px; min-width: 200px; background: #0D1624; border-right: 1px solid #1F2D44; padding: 24px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
-    <div style="padding: 0 8px 20px; font-weight: 700; font-size: 18px"><span style="display: block; font-size: 11px; letter-spacing: 0.14em; color: #9AA3B2">AIVORY</span>Warden</div>
-    <a href="Main.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; color: #C9CED8; text-decoration: none">Tokens</a>
-    <a href="Extension.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; color: #C9CED8; text-decoration: none">Inbox</a>
-    <a href="Detail.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; color: #C9CED8; text-decoration: none">Audit log</a>
-    <a href="Settings.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; background: #172438; color: #EDEAE3; text-decoration: none; font-weight: 600">Settings</a>
-  </nav>
+<div style="min-height: 960px; background: #DCDDDD; color: #111213; font-family: 'Instrument Sans', system-ui, sans-serif; display: flex; flex-direction: column">
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 24px; padding: 16px 32px; border-bottom: 1px solid #111213">
+    <div style="display: flex; align-items: center; gap: 14px; margin-right: auto">
+      <svg role="img" aria-label="AIVory" width="64" height="22" viewBox="0 0 403 138"><path d="M-0,136.215l13.916,0l62.676,-111.474l62.578,111.474l13.968,0l-76.484,-136.215l-76.654,136.215Z" fill="#111213"></path><path d="M200.399,136.215l11.439,0l-0.026,-136.215l-11.413,0l0,136.215Z" fill="#111213"></path><path d="M325.722,111.475l-62.661,-111.436l-13.932,-0.039l76.593,136.215l76.593,-136.215l-13.917,0l-62.676,111.475Z" fill="#111213"></path></svg>
+      <span style="width: 2px; height: 20px; background: #111213"></span>
+      <span style="font-family: 'Martian Mono', monospace; font-size: 15px; font-weight: 600; letter-spacing: 0.1em">WARDEN</span>
+    </div>
+    <nav aria-label="Main" style="display: flex; flex-wrap: wrap; gap: 4px; font-family: 'Martian Mono', monospace; font-size: 12px">
+      <a href="Main.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; padding: 0 12px; text-decoration: none">TOKENS</a>
+      <a href="Extension.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; padding: 0 12px; text-decoration: none">INBOX</a>
+      <a href="Detail.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; padding: 0 12px; text-decoration: none">AUDIT</a>
+      <a href="Settings.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; padding: 0 12px; text-decoration: none; border-bottom: 3px solid #111213; font-weight: 600">SETTINGS</a>
+    </nav>
+  </header>
 
-  <main style="flex: 999 1 560px; min-width: 0; padding: 32px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px; max-width: 980px">
-    <h1 style="margin: 0; font-size: 28px">Settings</h1>
+  <div style="display: flex; flex-wrap: wrap; gap: 48px; padding: 32px 56px; box-sizing: border-box">
+    <main style="flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+      <h1 style="margin: 0; font-family: 'Anybody', sans-serif; font-weight: 900; font-stretch: 140%; font-variation-settings: 'wdth' 140; font-size: 52px; line-height: 1; letter-spacing: -0.02em">Settings</h1>
+      <div style="height: 8px; background: #111213; margin: 8px 0"></div>
 
-    <section aria-labelledby="rot" style="background: #0D1624; border: 1px solid #1F2D44; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
-      <h2 id="rot" style="margin: 0; font-size: 16px">Rotation</h2>
-      <label style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; min-height: 44px">
-        <span style="display: flex; flex-direction: column"><span style="font-weight: 600">Default interval</span><span style="color: #9AA3B2; font-size: 13px">For each token without its own interval.</span></span>
-        <select style="min-height: 44px; min-width: 180px; background: #05010D; color: #EDEAE3; border: 1px solid #2B3B55; border-radius: 8px; padding: 0 10px; font: inherit"><option>7 days</option><option>14 days</option><option selected>30 days</option><option>90 days</option></select>
+      <span style="font-family: 'Martian Mono', monospace; font-size: 12px; font-weight: 600; padding-top: 4px">ROTATION</span>
+      <label style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; min-height: 52px; border-top: 1px solid #111213">
+        <span style="display: flex; flex-direction: column"><span style="font-size: 16px">Default interval</span><span style="font-size: 13px; color: #54575B">For each token without its own interval.</span></span>
+        <select style="min-height: 44px; min-width: 180px; background: #F2F2F1; color: #111213; border: 2px solid #111213; border-radius: 0; padding: 0 10px; font-family: 'Martian Mono', monospace; font-size: 13px"><option>7 days</option><option>14 days</option><option selected>30 days</option><option>90 days</option></select>
       </label>
-      <label style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; min-height: 44px">
-        <span style="display: flex; flex-direction: column"><span style="font-weight: 600">Rotation window</span><span style="color: #9AA3B2; font-size: 13px">The daemon rotates only in this time window.</span></span>
-        <select style="min-height: 44px; min-width: 180px; background: #05010D; color: #EDEAE3; border: 1px solid #2B3B55; border-radius: 8px; padding: 0 10px; font: inherit"><option selected>02:00 to 05:00</option><option>Any time</option></select>
+      <label style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; min-height: 52px; border-top: 1px solid #A9ABAD">
+        <span style="display: flex; flex-direction: column"><span style="font-size: 16px">Rotation window</span><span style="font-size: 13px; color: #54575B">The daemon rotates only in this window.</span></span>
+        <select style="min-height: 44px; min-width: 180px; background: #F2F2F1; color: #111213; border: 2px solid #111213; border-radius: 0; padding: 0 10px; font-family: 'Martian Mono', monospace; font-size: 13px"><option selected>02:00–05:00</option><option>any time</option></select>
       </label>
-    </section>
 
-    <section aria-labelledby="sec" style="background: #0D1624; border: 1px solid #1F2D44; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
-      <h2 id="sec" style="margin: 0; font-size: 16px">Security</h2>
-      <label style="display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px">
-        <span style="display: flex; flex-direction: column"><span style="font-weight: 600">Keychain cache</span><span style="color: #9AA3B2; font-size: 13px">Lets the daemon rotate while you are away. Off: rotations wait for you to unlock.</span></span>
-        <input type="checkbox" checked style="width: 44px; height: 24px; accent-color: {{accent}}">
+      <span style="font-family: 'Martian Mono', monospace; font-size: 12px; font-weight: 600; padding-top: 16px">SECURITY</span>
+      <label style="display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 52px; border-top: 1px solid #111213">
+        <span style="display: flex; flex-direction: column"><span style="font-size: 16px">Keychain cache</span><span style="font-size: 13px; color: #54575B">Off: rotations wait until you unlock.</span></span>
+        <input type="checkbox" checked style="width: 40px; height: 22px; accent-color: #111213">
       </label>
-      <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; min-height: 44px">
-        <span style="display: flex; flex-direction: column"><span style="font-weight: 600">Vault folder</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #9AA3B2">~/Sync/warden-vault</span></span>
-        <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid #2B3B55; background: transparent; color: #EDEAE3; font: inherit">Change</button>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; min-height: 52px; border-top: 1px solid #A9ABAD">
+        <span style="display: flex; flex-direction: column"><span style="font-size: 16px">Vault folder</span><span style="font-family: 'Martian Mono', monospace; font-size: 12px; color: #54575B">~/Sync/warden-vault</span></span>
+        <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 0; border: 2px solid #111213; background: transparent; color: #111213; font: inherit; font-weight: 600">Change</button>
       </div>
-    </section>
 
-    <section aria-labelledby="dev" style="background: #0D1624; border: 1px solid #1F2D44; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 10px">
-      <div style="display: flex; align-items: center; justify-content: space-between"><h2 id="dev" style="margin: 0; font-size: 16px">Devices</h2><button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid #2B3B55; background: transparent; color: #EDEAE3; font: inherit">Add device</button></div>
-      <div style="display: flex; align-items: center; gap: 12px; min-height: 48px; border-top: 1px solid #1F2D44; flex-wrap: wrap"><span style="margin-right: auto">paul-laptop · Windows 11 · this device</span><span style="font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 6px; background: rgba(182,243,106,0.12); color: #B6F36A">rotator for 14 tokens</span></div>
-      <div style="display: flex; align-items: center; gap: 12px; min-height: 48px; border-top: 1px solid #1F2D44; flex-wrap: wrap"><span style="margin-right: auto">studio-mac · macOS 26 · last seen 2 h ago</span><span style="font-size: 12px; color: #9AA3B2">read only</span></div>
-    </section>
+      <span style="font-family: 'Martian Mono', monospace; font-size: 12px; font-weight: 600; padding-top: 16px">DEVICES</span>
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 52px; border-top: 1px solid #111213; flex-wrap: wrap"><span style="margin-right: auto; font-size: 16px">paul-laptop · Windows 11 · this device</span><span style="padding: 4px 10px; border: 2px solid #111213; background: {{accent}}; font-family: 'Martian Mono', monospace; font-size: 11px; font-weight: 600">ROTATOR · 14</span></div>
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 52px; border-top: 1px solid #A9ABAD; flex-wrap: wrap"><span style="margin-right: auto; font-size: 16px">studio-mac · macOS 26 · seen 2 h ago</span><span style="padding: 4px 10px; border: 2px solid #8A8C8F; color: #54575B; font-family: 'Martian Mono', monospace; font-size: 11px; font-weight: 600">READ ONLY</span></div>
 
-    <section aria-labelledby="mcpc" style="background: #0D1624; border: 1px solid #1F2D44; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 10px">
-      <div style="display: flex; align-items: center; justify-content: space-between"><h2 id="mcpc" style="margin: 0; font-size: 16px">MCP clients</h2><button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid #2B3B55; background: transparent; color: #EDEAE3; font: inherit">Pair client</button></div>
-      <div style="display: flex; align-items: center; gap: 12px; min-height: 48px; border-top: 1px solid #1F2D44; flex-wrap: wrap"><span style="margin-right: auto">Claude Code · paired 12 Nov</span><span style="font-size: 12px; color: #C9CED8">use only</span><button type="button" style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 0; background: transparent; color: #FF8A80; font: inherit">Unpair</button></div>
-      <div style="display: flex; align-items: center; gap: 12px; min-height: 48px; border-top: 1px solid #1F2D44; flex-wrap: wrap"><span style="margin-right: auto">ops-agent · paired 20 Nov</span><span style="font-size: 12px; color: #F5B949">use + policy</span><button type="button" style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 0; background: transparent; color: #FF8A80; font: inherit">Unpair</button></div>
-    </section>
+      <span style="font-family: 'Martian Mono', monospace; font-size: 12px; font-weight: 600; padding-top: 16px">MCP CLIENTS</span>
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 52px; border-top: 1px solid #111213; flex-wrap: wrap"><span style="margin-right: auto; font-size: 16px">Claude Code · paired 12 Nov</span><span style="font-family: 'Martian Mono', monospace; font-size: 12px">USE</span><button type="button" style="min-height: 44px; padding: 0 12px; border: 0; background: transparent; color: #C63D0C; font: inherit; font-weight: 600">Unpair</button></div>
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 52px; border-top: 1px solid #A9ABAD; flex-wrap: wrap"><span style="margin-right: auto; font-size: 16px">ops-agent · paired 20 Nov</span><span style="font-family: 'Martian Mono', monospace; font-size: 12px">USE + POLICY</span><button type="button" style="min-height: 44px; padding: 0 12px; border: 0; background: transparent; color: #C63D0C; font: inherit; font-weight: 600">Unpair</button></div>
+    </main>
 
-    <section aria-labelledby="cof" style="background: #FAF6EF; color: #0D0D0E; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
-      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap">
-        <h2 id="cof" style="margin: 0; font-size: 16px">Coffee for 2026</h2>
-        <span style="font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: #F0EBE3; color: #4A4A4A">not paid this year</span>
-      </div>
-      <p style="margin: 0; font-size: 14px; color: #4A4A4A">Warden is free and open source. One coffee a year stops the weekly note. Rotation works the same either way.</p>
-      <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end">
-        <a href="https://aivory.net/coffee" style="min-height: 44px; display: inline-flex; align-items: center; padding: 0 18px; border-radius: 8px; background: #0D0D0E; color: #FAF6EF; font-weight: 600; text-decoration: none">Buy a coffee</a>
-        <label style="flex: 1 1 280px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #4A4A4A">Receipt code
-          <input placeholder="aivw-receipt-2026-…" style="min-height: 44px; background: #FFFDF7; color: #0D0D0E; border: 1px solid #C9C2B6; border-radius: 8px; padding: 0 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px">
-        </label>
-        <button type="button" style="min-height: 44px; padding: 0 18px; border-radius: 8px; border: 1px solid #0D0D0E; background: transparent; color: #0D0D0E; font: inherit; font-weight: 600">Apply</button>
-      </div>
-      <label style="display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px"><input type="checkbox" checked style="width: 20px; height: 20px; accent-color: #0D0D0E">Show the weekly coffee note</label>
-    </section>
-  </main>
+    <aside style="flex: 1 1 300px; max-width: 380px; display: flex; flex-direction: column; gap: 14px">
+      <span style="font-family: 'Martian Mono', monospace; font-size: 12px; color: #54575B; padding-bottom: 10px; border-bottom: 1px solid #111213">COFFEE · 2026</span>
+      <span style="font-family: 'Anybody', sans-serif; font-weight: 900; font-stretch: 140%; font-variation-settings: 'wdth' 140; font-size: 40px; line-height: 1.05">Not paid yet</span>
+      <p style="margin: 0; font-size: 15px">Warden is free and open source. One coffee a year stops the weekly note. Rotation works the same either way.</p>
+      <a href="https://aivory.net/coffee" style="display: flex; align-items: stretch; min-height: 64px; text-decoration: none">
+        <span style="flex: 1; display: flex; align-items: center; padding: 0 20px; background: #111213; color: #F2F2F1; font-family: 'Anybody', sans-serif; font-weight: 800; font-stretch: 130%; font-variation-settings: 'wdth' 130; font-size: 20px">Buy a coffee</span>
+        <span style="width: 64px; display: flex; align-items: center; justify-content: center; background: {{accent}}"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M4 11 H18 M12 5 L18 11 L12 17" stroke="#111213" stroke-width="2.4"></path></svg></span>
+      </a>
+      <label style="display: flex; flex-direction: column; gap: 6px; font-family: 'Martian Mono', monospace; font-size: 11px; font-weight: 600; padding-top: 8px">RECEIPT CODE
+        <input placeholder="aivw-receipt-…" style="min-height: 48px; background: #F2F2F1; color: #111213; border: 2px solid #111213; border-radius: 0; padding: 0 12px; font-family: 'Martian Mono', monospace; font-size: 13px">
+      </label>
+      <button type="button" style="min-height: 48px; border-radius: 0; border: 2px solid #111213; background: transparent; color: #111213; font: inherit; font-weight: 600; font-size: 16px">Apply receipt</button>
+      <label style="display: flex; align-items: center; gap: 12px; min-height: 44px; font-size: 15px"><input type="checkbox" checked style="width: 22px; height: 22px; accent-color: #111213">Show the weekly coffee note</label>
+    </aside>
+  </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#B6F36A","options":["#B6F36A","#7FD6FF","#F5B949"]},"$preview":{"width":1280,"height":960}}'>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#22C55E","options":["#22C55E","#1F9D55","#FF5A1F"]},"$preview":{"width":1280,"height":960}}'>
 class Component extends DCLogic {
   renderVals() {
-    return { accent: this.props.accent ?? '#B6F36A' };
+    return { accent: this.props.accent ?? '#22C55E' };
   }
 }
 </script>

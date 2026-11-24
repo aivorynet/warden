@@ -8,40 +8,40 @@
 <body>
 <x-dc>
 <helmet>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@400;600&amp;display=swap">
 <style>
 body{margin:0}
 </style>
 </helmet>
-<div style="width: 960px; height: 600px; box-sizing: border-box; background: #05010D; color: #EDEAE3; font-family: 'JetBrains Mono', monospace; font-size: 14px; line-height: 1.6; padding: 24px 28px; display: flex; flex-direction: column; gap: 14px">
+<div style="width: 960px; height: 600px; box-sizing: border-box; background: #F2F2F1; color: #111213; border: 2px solid #111213; font-family: 'Martian Mono', monospace; font-size: 13px; line-height: 1.65; padding: 24px 28px; display: flex; flex-direction: column; gap: 14px">
   <div style="display: flex; flex-direction: column">
-    <span style="color: #9AA3B2">$ awd status</span>
+    <span style="color: #54575B">$ awd status</span>
     <span><span style="color: {{accent}}">●</span> daemon running · vault unlocked (keychain) · device paul-laptop · 14 tokens</span>
-    <span style="white-space: pre; color: #9AA3B2">NAME                 PROVIDER    STATUS     NEXT           EXPIRES     PLACES</span>
-    <span style="white-space: pre">gitlab-admin         gitlab      <span style="color: #B6F36A">healthy</span>    in 12d         2027-02-01  3</span>
-    <span style="white-space: pre">cloudflare-dns       cloudflare  <span style="color: #F5B949">due</span>        in 18h         2026-12-01  2</span>
-    <span style="white-space: pre">openai-agents-prod   openai      <span style="color: #FF8A80">failed</span>     retry 14:20    -           3</span>
+    <span style="white-space: pre; color: #54575B">NAME                 PROVIDER    STATUS     NEXT           EXPIRES     PLACES</span>
+    <span style="white-space: pre">gitlab-admin         gitlab      <span style="color: #0B6B34">healthy</span>    in 12d         2027-02-01  3</span>
+    <span style="white-space: pre">cloudflare-dns       cloudflare  <span style="color: #8A5A00">due</span>        in 18h         2026-12-01  2</span>
+    <span style="white-space: pre">openai-agents-prod   openai      <span style="color: #C63D0C">failed</span>     retry 14:20    -           3</span>
     <span style="white-space: pre">github-actions-pat   manual      reminder   renew by 5 Dec 2026-12-05  1</span>
   </div>
   <div style="display: flex; flex-direction: column">
-    <span style="color: #9AA3B2">$ awd rotate cloudflare-dns</span>
-    <span>→ roll token at Cloudflare (atomic swap) ............ <span style="color: #B6F36A">ok</span></span>
-    <span>→ store new value in vault (fsync) .................. <span style="color: #B6F36A">ok</span></span>
-    <span>→ write ~/infra/.env  CLOUDFLARE_API_TOKEN .......... <span style="color: #B6F36A">ok</span>  verified</span>
-    <span>→ write ops@edge-01:/etc/caddy/env  CF_TOKEN ........ <span style="color: #B6F36A">ok</span>  verified</span>
+    <span style="color: #54575B">$ awd rotate cloudflare-dns</span>
+    <span>→ roll token at Cloudflare (atomic swap) ............ <span style="color: #0B6B34">ok</span></span>
+    <span>→ store new value in vault (fsync) .................. <span style="color: #0B6B34">ok</span></span>
+    <span>→ write ~/infra/.env  CLOUDFLARE_API_TOKEN .......... <span style="color: #0B6B34">ok</span>  verified</span>
+    <span>→ write ops@edge-01:/etc/caddy/env  CF_TOKEN ........ <span style="color: #0B6B34">ok</span>  verified</span>
     <span><span style="color: {{accent}}">✓</span> cloudflare-dns rotated · next rotation 24 Dec 2026</span>
   </div>
   <div style="display: flex; flex-direction: column">
-    <span style="color: #9AA3B2">$ awd policy set gitlab-ci-deploy --interval 14d --lead 7d</span>
+    <span style="color: #54575B">$ awd policy set gitlab-ci-deploy --interval 14d --lead 7d</span>
     <span><span style="color: {{accent}}">✓</span> policy saved · next rotation 27 Nov 2026 03:12</span>
   </div>
-  <div style="margin-top: auto; color: #C9A86A">☕ Warden rotated 9 tokens this week. A coffee for 2026 keeps it free: https://aivory.net/coffee</div>
+  <div style="margin-top: auto; color: #111213; border-top: 1px solid #111213; padding-top: 10px">Warden rotated 9 tokens this week. A coffee for 2026 keeps it free: https://aivory.net/coffee</div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#B6F36A","options":["#B6F36A","#7FD6FF","#F5B949"]},"$preview":{"width":960,"height":600}}'>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#0B6B34","options":["#0B6B34","#7FD6FF","#8A5A00"]},"$preview":{"width":960,"height":600}}'>
 class Component extends DCLogic {
   renderVals() {
-    return { accent: this.props.accent ?? '#B6F36A' };
+    return { accent: this.props.accent ?? '#0B6B34' };
   }
 }
 </script>

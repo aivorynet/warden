@@ -8,50 +8,60 @@
 <body>
 <x-dc>
 <helmet>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&amp;family=Instrument+Sans:wght@400;600&amp;family=Martian+Mono:wght@400;600&amp;display=swap">
 <style>
-body{margin:0;background:#05010D}
-a{color:#B6F36A}a:hover{color:#D4FA9E}
+body{margin:0;background:#DCDDDD}
+a{color:#111213}a:hover{color:#0B6B34}
 </style>
 </helmet>
-<div style="min-height: 820px; background: #05010D; color: #EDEAE3; font-family: 'IBM Plex Sans', system-ui, sans-serif; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 32px; padding: 40px 24px; box-sizing: border-box">
-  <form style="flex: 1 1 380px; max-width: 420px; background: #0D1624; border: 1px solid #1F2D44; border-radius: 16px; padding: 32px; display: flex; flex-direction: column; gap: 20px">
-    <div style="display: flex; align-items: center; gap: 12px">
-      <svg width="40" height="40" viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M14 2 L24 6 V13 C24 19.5 19.8 24.2 14 26 C8.2 24.2 4 19.5 4 13 V6 Z" stroke="{{accent}}" stroke-width="2" stroke-linejoin="round"></path><circle cx="14" cy="12" r="3" stroke="{{accent}}" stroke-width="2"></circle><path d="M14 15 V20" stroke="{{accent}}" stroke-width="2" stroke-linecap="round"></path></svg>
-      <div><div style="font-size: 11px; letter-spacing: 0.14em; color: #9AA3B2; font-weight: 600">AIVORY</div><h1 style="margin: 0; font-size: 24px">Unlock Warden</h1></div>
-    </div>
-    <p style="margin: 0; color: #9AA3B2; font-size: 14px">Vault on this device: <span style="font-family: 'JetBrains Mono', monospace; color: #C9CED8">~/Sync/warden-vault</span></p>
-    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #9AA3B2">Master password
-      <input type="password" value="correct-horse-staple" style="min-height: 44px; background: #05010D; color: #EDEAE3; border: 1px solid #2B3B55; border-radius: 8px; padding: 0 12px; font: inherit">
-    </label>
-    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #9AA3B2">Secret Key (from your Emergency Kit)
-      <input value="A3-7KQ2M9-XW4TP-R8D6F-2HNC5-JV9Q3" style="min-height: 44px; background: #05010D; color: #EDEAE3; border: 1px solid #2B3B55; border-radius: 8px; padding: 0 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px">
-    </label>
-    <label style="display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px">
-      <input type="checkbox" checked style="width: 20px; height: 20px; accent-color: {{accent}}">
-      Keep unlocked for background rotation (OS keychain)
-    </label>
-    <button type="submit" style="min-height: 48px; border-radius: 8px; border: 0; background: {{accent}}; color: #05010D; font: inherit; font-weight: 700; font-size: 16px">Unlock</button>
-    <p style="margin: 0; font-size: 13px; color: #9AA3B2">New device? <a href="Settings.dc.html">Join an existing vault</a></p>
-  </form>
+<div style="min-height: 820px; background: #DCDDDD; color: #111213; font-family: 'Instrument Sans', system-ui, sans-serif; display: flex; flex-direction: column">
+  <header style="display: flex; align-items: center; gap: 14px; padding: 16px 32px; border-bottom: 1px solid #111213">
+    <svg role="img" aria-label="AIVory" width="64" height="22" viewBox="0 0 403 138"><path d="M-0,136.215l13.916,0l62.676,-111.474l62.578,111.474l13.968,0l-76.484,-136.215l-76.654,136.215Z" fill="#111213"></path><path d="M200.399,136.215l11.439,0l-0.026,-136.215l-11.413,0l0,136.215Z" fill="#111213"></path><path d="M325.722,111.475l-62.661,-111.436l-13.932,-0.039l76.593,136.215l76.593,-136.215l-13.917,0l-62.676,111.475Z" fill="#111213"></path></svg>
+    <span style="width: 2px; height: 20px; background: #111213"></span>
+    <span style="font-family: 'Martian Mono', monospace; font-size: 15px; font-weight: 600; letter-spacing: 0.1em">WARDEN</span>
+  </header>
 
-  <aside aria-label="Emergency Kit" style="flex: 1 1 380px; max-width: 460px; background: #FAF6EF; color: #0D0D0E; border-radius: 16px; padding: 32px; display: flex; flex-direction: column; gap: 16px">
-    <div style="display: flex; justify-content: space-between; align-items: baseline"><h2 style="margin: 0; font-size: 20px">Emergency Kit</h2><span style="font-size: 12px; color: #4A4A4A">first run</span></div>
-    <p style="margin: 0; font-size: 14px; color: #4A4A4A">Print this page or store it offline. Warden has no server: without the Secret Key and the password nobody can open the vault, also not Aivory.</p>
-    <div style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; color: #4A4A4A; font-weight: 600">SECRET KEY</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 18px; letter-spacing: 0.04em">A3-7KQ2M9-XW4TP-R8D6F-2HNC5-JV9Q3</span></div>
-    <div style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; color: #4A4A4A; font-weight: 600">MASTER PASSWORD</span><span style="height: 36px; border-bottom: 1px solid #0D0D0E"></span></div>
-    <div style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; color: #4A4A4A; font-weight: 600">VAULT ID</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">0193f2c4-8e1a-7b3d-9a52-4c6e1f0d2b77</span></div>
-    <div style="display: flex; gap: 12px; flex-wrap: wrap">
-      <button type="button" style="min-height: 44px; padding: 0 18px; border-radius: 8px; border: 0; background: #0D0D0E; color: #FAF6EF; font: inherit; font-weight: 600">Save as PDF</button>
-      <button type="button" style="min-height: 44px; padding: 0 18px; border-radius: 8px; border: 1px solid #0D0D0E; background: transparent; color: #0D0D0E; font: inherit; font-weight: 600">I stored it</button>
-    </div>
-  </aside>
+  <div style="display: flex; flex-wrap: wrap; gap: 56px; padding: 48px 56px; box-sizing: border-box; align-items: flex-start">
+    <form style="flex: 1 1 420px; max-width: 520px; display: flex; flex-direction: column; gap: 16px">
+      <span style="font-family: 'Martian Mono', monospace; font-size: 12px; color: #54575B">VAULT · ~/SYNC/WARDEN-VAULT</span>
+      <h1 style="margin: 0; font-family: 'Anybody', sans-serif; font-weight: 900; font-stretch: 140%; font-variation-settings: 'wdth' 140; font-size: 56px; line-height: 1; letter-spacing: -0.02em">Unlock</h1>
+      <p style="margin: 0; font-size: 17px">Your password and your Secret Key open the vault. Nobody else has them, Aivory too.</p>
+      <div style="height: 8px; background: #111213"></div>
+      <label style="display: flex; flex-direction: column; gap: 6px; font-family: 'Martian Mono', monospace; font-size: 11px; font-weight: 600">MASTER PASSWORD
+        <input type="password" value="correct-horse-staple" style="min-height: 48px; background: #F2F2F1; color: #111213; border: 2px solid #111213; border-radius: 0; padding: 0 12px; font-size: 16px">
+      </label>
+      <label style="display: flex; flex-direction: column; gap: 6px; font-family: 'Martian Mono', monospace; font-size: 11px; font-weight: 600">SECRET KEY
+        <input value="A3-7KQ2M-9XW4T-PR8D6-F2HNC-5JV9Q" style="min-height: 48px; background: #F2F2F1; color: #111213; border: 2px solid #111213; border-radius: 0; padding: 0 12px; font-family: 'Martian Mono', monospace; font-size: 14px">
+      </label>
+      <label style="display: flex; align-items: center; gap: 12px; min-height: 44px; font-size: 16px">
+        <input type="checkbox" checked style="width: 22px; height: 22px; accent-color: #111213">
+        Stay unlocked for background rotation
+      </label>
+      <button type="submit" style="display: flex; align-items: stretch; min-height: 64px; padding: 0; border: 0; background: transparent; cursor: pointer">
+        <span style="flex: 1; display: flex; align-items: center; padding: 0 20px; background: #111213; color: #F2F2F1; font-family: 'Anybody', sans-serif; font-weight: 800; font-stretch: 130%; font-variation-settings: 'wdth' 130; font-size: 20px">Unlock</span>
+        <span style="width: 64px; display: flex; align-items: center; justify-content: center; background: {{accent}}"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M4 11 H18 M12 5 L18 11 L12 17" stroke="#111213" stroke-width="2.4"></path></svg></span>
+      </button>
+      <a href="Settings.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; font-size: 15px">This is a new device: join a vault</a>
+    </form>
+
+    <aside aria-label="Emergency Kit" style="flex: 1 1 380px; max-width: 520px; background: #F2F2F1; border: 2px solid #111213; padding: 28px; display: flex; flex-direction: column; gap: 16px">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px"><h2 style="margin: 0; font-family: 'Anybody', sans-serif; font-weight: 900; font-stretch: 130%; font-variation-settings: 'wdth' 130; font-size: 28px">Emergency Kit</h2><span style="font-family: 'Martian Mono', monospace; font-size: 11px; color: #54575B">FIRST RUN</span></div>
+      <p style="margin: 0; font-size: 15px">Print this page or keep it offline. Without it a lost password means a lost vault.</p>
+      <div style="display: flex; flex-direction: column; gap: 4px; border: 2px solid #0B6B34; padding: 12px 14px"><span style="font-family: 'Martian Mono', monospace; font-size: 11px; color: #0B6B34; font-weight: 600">SECRET KEY</span><span style="font-family: 'Martian Mono', monospace; font-size: 20px; font-weight: 600">A3-7KQ2M-9XW4T-PR8D6-F2HNC-5JV9Q</span></div>
+      <div style="display: flex; flex-direction: column; gap: 4px"><span style="font-family: 'Martian Mono', monospace; font-size: 11px; font-weight: 600">MASTER PASSWORD</span><span style="height: 36px; border-bottom: 2px solid #111213"></span></div>
+      <div style="display: flex; flex-direction: column; gap: 4px"><span style="font-family: 'Martian Mono', monospace; font-size: 11px; font-weight: 600">VAULT ID</span><span style="font-family: 'Martian Mono', monospace; font-size: 13px">0193f2c4-8e1a-7b3d-9a52-4c6e1f0d2b77</span></div>
+      <div style="display: flex; gap: 12px; flex-wrap: wrap">
+        <button type="button" style="min-height: 48px; padding: 0 18px; border-radius: 0; border: 2px solid #111213; background: #111213; color: #F2F2F1; font: inherit; font-weight: 600">Save as PDF</button>
+        <button type="button" style="min-height: 48px; padding: 0 18px; border-radius: 0; border: 2px solid #111213; background: transparent; color: #111213; font: inherit; font-weight: 600">I stored it</button>
+      </div>
+    </aside>
+  </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#B6F36A","options":["#B6F36A","#7FD6FF","#F5B949"]},"$preview":{"width":1280,"height":820}}'>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#22C55E","options":["#22C55E","#1F9D55","#FF5A1F"]},"$preview":{"width":1280,"height":820}}'>
 class Component extends DCLogic {
   renderVals() {
-    return { accent: this.props.accent ?? '#B6F36A' };
+    return { accent: this.props.accent ?? '#22C55E' };
   }
 }
 </script>

@@ -1,10 +1,12 @@
 [package]
 name = "aivory-warden"
+description = "Aivory Warden: daemon, CLI, MCP server and native host in one binary"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+default-run = "aivory-warden"
 
 [[bin]]
 name = "aivory-warden"
@@ -12,10 +14,40 @@ path = "src/main.rs"
 
 [[bin]]
 name = "awd"
-path = "src/main.rs"
+path = "src/awd.rs"
 
 [dependencies]
 warden-core.workspace = true
+warden-vault.workspace = true
+warden-providers.workspace = true
+warden-sinks.workspace = true
+warden-engine.workspace = true
+warden-ipc.workspace = true
+warden-mcp.workspace = true
+warden-coffee.workspace = true
+warden-native-host.workspace = true
+async-trait.workspace = true
+blake3 = "1"
+chrono.workspace = true
+clap.workspace = true
+chacha20poly1305 = "0.10"
+dialoguer = { version = "0.11", default-features = false }
+directories = "6"
+hex = "0.4"
+notify-rust = "4"
+open = "5"
+rand.workspace = true
+rpassword = "7"
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "io-std", "io-util", "process", "signal"] }
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
+uuid.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
 
 [lints]
 workspace = true

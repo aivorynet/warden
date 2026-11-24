@@ -131,6 +131,15 @@ pub struct CoffeeInfo {
     pub reminder_due: bool,
     /// Link to pay.
     pub link: String,
+    /// The user signed the coffee pledge.
+    #[serde(default)]
+    pub pledged: bool,
+    /// Ticket number of this install, for example `AIVW-2026-1234`.
+    #[serde(default)]
+    pub ticket: String,
+    /// Price label shown next to the coffee button.
+    #[serde(default)]
+    pub price_label: String,
 }
 
 /// One audit log entry.

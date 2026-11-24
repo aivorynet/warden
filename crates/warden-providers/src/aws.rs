@@ -3,7 +3,7 @@
 //! Secret value format: JSON `{"access_key_id","secret_access_key"}` (optional
 //! `session_token`).
 
-use crate::http::{Http, cfg_str, check_name};
+use crate::http::{Http, cfg_loopback, cfg_str, check_name, text_capped};
 use async_trait::async_trait;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
@@ -14,6 +14,7 @@ use warden_core::{
     SecretValue, TokenInfo, WardenError,
 };
 
+const GLOBAL_REGION: &str = "us-east-1";
 const MAX_KEYS: usize = 2;
 const IAM_VERSION: &str = "2010-05-08";
 const STS_VERSION: &str = "2011-06-15";
@@ -23,12 +24,14 @@ const STS_VERSION: &str = "2011-06-15";
 /// Config: `region` (default `us-east-1`), `iam_endpoint` (default
 /// `https://iam.amazonaws.com`), `sts_endpoint` (default `https://sts.amazonaws.com`),
 /// `base_url` (one override for both endpoints, for tests), `user_name` (target user for
-/// `create_derived`; `revoke` uses it when set).
+/// `create_derived`; `revoke` uses it when set). The global default endpoints always sign
+/// with `us-east-1`; `region` applies only to a custom endpoint.
 #[derive(Debug)]
 pub struct AwsIam {
     iam: Http,
     sts: Http,
-    region: String,
+    iam_region: String,
+    sts_region: String,
     user_name: Option<String>,
 }
 
@@ -138,16 +141,32 @@ impl AwsIam {
     /// Build from provider config.
     pub fn from_config(c: &serde_json::Value) -> Result<Self> {
         let base = cfg_str(c, "base_url");
-        let iam = cfg_str(c, "iam_endpoint")
-            .or_else(|| base.clone())
-            .unwrap_or_else(|| "https://iam.amazonaws.com".into());
-        let sts = cfg_str(c, "sts_endpoint")
-            .or(base)
-            .unwrap_or_else(|| "https://sts.amazonaws.com".into());
+        let iam_cfg = cfg_str(c, "iam_endpoint").or_else(|| base.clone());
+        let sts_cfg = cfg_str(c, "sts_endpoint").or(base);
+        let region = cfg_str(c, "region").unwrap_or_else(|| GLOBAL_REGION.into());
+        // The global IAM and STS endpoints sign with us-east-1. A custom endpoint uses `region`.
+        let iam_region = if iam_cfg.is_some() {
+            region.clone()
+        } else {
+            GLOBAL_REGION.into()
+        };
+        let sts_region = if sts_cfg.is_some() {
+            region
+        } else {
+            GLOBAL_REGION.into()
+        };
+        let lb = cfg_loopback(c);
         Ok(Self {
-            iam: Http::new(iam)?,
-            sts: Http::new(sts)?,
-            region: cfg_str(c, "region").unwrap_or_else(|| "us-east-1".into()),
+            iam: Http::new(
+                iam_cfg.unwrap_or_else(|| "https://iam.amazonaws.com".into()),
+                lb,
+            )?,
+            sts: Http::new(
+                sts_cfg.unwrap_or_else(|| "https://sts.amazonaws.com".into()),
+                lb,
+            )?,
+            iam_region,
+            sts_region,
             user_name: cfg_str(c, "user_name"),
         })
     }
@@ -160,10 +179,10 @@ impl AwsIam {
         action: &str,
         params: &[(&str, &str)],
     ) -> Result<String> {
-        let http = if service == "sts" {
-            &self.sts
+        let (http, region) = if service == "sts" {
+            (&self.sts, &self.sts_region)
         } else {
-            &self.iam
+            (&self.iam, &self.iam_region)
         };
         let version = if service == "sts" {
             STS_VERSION
@@ -192,7 +211,7 @@ impl AwsIam {
             &hs,
             body.as_bytes(),
             creds,
-            &self.region,
+            region,
             service,
             &amz_date,
         );
@@ -207,9 +226,7 @@ impl AwsIam {
             rb = rb.header("x-amz-security-token", t);
         }
         let resp = http.send_with(rb, true).await?;
-        resp.text()
-            .await
-            .map_err(|e| WardenError::Provider(format!("bad response body: {}", e.without_url())))
+        text_capped(resp).await
     }
 
     /// Own user name from `sts:GetCallerIdentity`.
@@ -345,6 +362,24 @@ mod tests {
     use serde_json::json;
     use wiremock::matchers::{body_string_contains, method};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn global_endpoints_sign_with_us_east_1() {
+        let a = AwsIam::from_config(&json!({"region": "eu-west-1"})).unwrap();
+        assert_eq!(
+            (a.iam_region.as_str(), a.sts_region.as_str()),
+            ("us-east-1", "us-east-1")
+        );
+        let b = AwsIam::from_config(&json!({
+            "region": "eu-west-1",
+            "sts_endpoint": "https://sts.eu-west-1.amazonaws.com"
+        }))
+        .unwrap();
+        assert_eq!(
+            (b.iam_region.as_str(), b.sts_region.as_str()),
+            ("us-east-1", "eu-west-1")
+        );
+    }
 
     #[test]
     fn sigv4_matches_aws_test_vector() {

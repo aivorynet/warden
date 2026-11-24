@@ -116,10 +116,41 @@ fn tampered_op_rejected() {
     let f = op_files(&e.dir).remove(0);
     let mut raw = fs::read(&f).unwrap();
     let pos = String::from_utf8_lossy(&raw).find("\"ct\":\"").unwrap() + 8;
-    raw[pos] ^= 1; // flips one bit; the hex digit stays a valid hex digit
+    raw[pos] = if raw[pos] == b'0' { b'1' } else { b'0' }; // another valid hex digit
     fs::write(&f, &raw).unwrap();
     let err = Vault::open(&e.dir, "pw", &sk, &e.local).unwrap_err();
     assert!(err.to_string().contains("signature"), "{err}");
+}
+
+#[test]
+fn truncated_last_op_of_own_device_is_quarantined() {
+    let e = env();
+    let (mut v, sk) = create(&e);
+    v.put(item_with(ItemId::new(), "a"), secrets("s")).unwrap();
+    // A crash left a half-written op 2 that the local state never recorded.
+    let f1 = op_files(&e.dir).remove(0);
+    let raw = fs::read(&f1).unwrap();
+    let f2 = f1.with_file_name("2.op");
+    fs::write(&f2, &raw[..raw.len() / 2]).unwrap();
+    let files = [f1, f2];
+    let mut v = Vault::open(&e.dir, "pw", &sk, &e.local).unwrap();
+    assert_eq!(v.items().len(), 1);
+    assert!(!files[1].exists());
+    v.put(item_with(ItemId::new(), "c"), secrets("s")).unwrap();
+    assert_eq!(
+        Vault::open(&e.dir, "pw", &sk, &e.local)
+            .unwrap()
+            .items()
+            .len(),
+        2
+    );
+    // A truncated op that has a successor is still an error.
+    let files: Vec<_> = op_files(&e.dir)
+        .into_iter()
+        .filter(|f| f.extension().is_some_and(|x| x == "op"))
+        .collect();
+    fs::write(&files[0], &fs::read(&files[0]).unwrap()[..20]).unwrap();
+    assert!(Vault::open(&e.dir, "pw", &sk, &e.local).is_err());
 }
 
 #[test]

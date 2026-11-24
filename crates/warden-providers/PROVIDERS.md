@@ -22,3 +22,10 @@ and `capabilities()` reports false. Checked 2026-11-24. All listed cells are con
 - OpenAI service account ids are `<project_id>/<service_account_id>`.
 - AWS STS uses API version 2011-06-15, IAM uses 2010-05-08.
 - Retryable errors have the prefix `retryable:` in `WardenError::Provider` (5xx, timeout).
+
+## Provider config: transport rules
+
+- `base_url` must use https. The provider refuses any other URL.
+- `allow_insecure_loopback` (bool, default `false`): when `true`, an `http` URL on a loopback host (`127.0.0.1`, `::1`, `localhost`) is allowed. Use it only for tests with a local mock server.
+- A response body above 1 MiB fails the call.
+- AWS: the default global IAM and STS endpoints sign with `us-east-1`. `region` applies only to a custom endpoint.

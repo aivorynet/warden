@@ -73,26 +73,29 @@ impl Client {
         if self.broken {
             return Err(WardenError::Ipc("session is closed, reconnect".into()));
         }
+        // Mark the session broken until a full response arrives. A dropped future then
+        // leaves the session closed, not out of sync.
+        self.broken = true;
         let exchange = async {
             write_msg(&mut self.stream, &ClientMsg::Request(Box::new(req))).await?;
             read_response(&mut self.stream).await
         };
         match tokio::time::timeout(limit, exchange).await {
-            Ok(Ok(r)) => Ok(r),
+            Ok(Ok(r)) => {
+                self.broken = false;
+                Ok(r)
+            }
             Ok(Err(e)) => {
                 // A refused oversize request wrote nothing and keeps the session usable.
-                if !matches!(e, FrameError::TooLarge(_)) {
-                    self.broken = true;
+                if matches!(e, FrameError::TooLarge(_)) {
+                    self.broken = false;
                 }
                 Err(e.into())
             }
-            Err(_) => {
-                self.broken = true;
-                Err(WardenError::Ipc(format!(
-                    "no answer from the daemon within {} s",
-                    limit.as_secs()
-                )))
-            }
+            Err(_) => Err(WardenError::Ipc(format!(
+                "no answer from the daemon within {} s",
+                limit.as_secs()
+            ))),
         }
     }
 

@@ -245,6 +245,15 @@ async fn call_times_out_and_marks_session_broken() {
     assert!(r.is_err());
     assert!(c.is_broken());
     assert!(c.call(Request::Lock).await.is_err());
+    // A caller that drops the future in the middle also leaves a broken session.
+    let mut c2 = Client::connect(Some(&path), Some(&token)).await.unwrap();
+    let r = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        c2.call(Request::Lock),
+    )
+    .await;
+    assert!(r.is_err());
+    assert!(c2.is_broken());
 }
 
 #[test]

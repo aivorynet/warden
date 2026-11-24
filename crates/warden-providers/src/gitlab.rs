@@ -1,6 +1,6 @@
 //! GitLab provider: personal access token self-rotate, project access tokens.
 
-use crate::http::{Http, cfg_str, check_name, json};
+use crate::http::{Http, cfg_loopback, cfg_str, check_name, json};
 use async_trait::async_trait;
 use chrono::{DateTime, Days, NaiveDate, Utc};
 use serde::Deserialize;
@@ -46,7 +46,10 @@ impl GitLab {
     /// Build from provider config.
     pub fn from_config(c: &serde_json::Value) -> Result<Self> {
         Ok(Self {
-            http: Http::new(cfg_str(c, "base_url").unwrap_or_else(|| DEFAULT_BASE.into()))?,
+            http: Http::new(
+                cfg_str(c, "base_url").unwrap_or_else(|| DEFAULT_BASE.into()),
+                cfg_loopback(c),
+            )?,
             project_id: cfg_str(c, "project_id"),
             access_level: c.get("access_level").and_then(|v| v.as_u64()).unwrap_or(40) as u32,
             expiry_days: c

@@ -21,7 +21,11 @@ impl std::fmt::Debug for Http {
 }
 
 impl Http {
-    pub(crate) fn new(base: impl Into<String>) -> Result<Self> {
+    /// Build a client. `base` must be https. A loopback http URL is allowed only in tests
+    /// or when `allow_insecure_loopback` is set.
+    pub(crate) fn new(base: impl Into<String>, allow_insecure_loopback: bool) -> Result<Self> {
+        let base: String = base.into();
+        check_base(&base, allow_insecure_loopback)?;
         let client = Client::builder()
             .timeout(TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
@@ -29,7 +33,7 @@ impl Http {
             .map_err(|e| WardenError::Config(format!("http client: {e}")))?;
         Ok(Self {
             client,
-            base: base.into().trim_end_matches('/').to_string(),
+            base: base.trim_end_matches('/').to_string(),
         })
     }
 
@@ -60,6 +64,56 @@ impl Http {
     }
 }
 
+/// Maximum size of a provider response body.
+pub(crate) const MAX_BODY: usize = 1024 * 1024;
+
+fn check_base(base: &str, allow_loopback: bool) -> Result<()> {
+    let u =
+        reqwest::Url::parse(base).map_err(|e| WardenError::Config(format!("bad base_url: {e}")))?;
+    match u.scheme() {
+        "https" => Ok(()),
+        "http" => {
+            let loopback = u.host_str().is_some_and(|h| {
+                let h = h.trim_start_matches('[').trim_end_matches(']');
+                h.eq_ignore_ascii_case("localhost")
+                    || h.parse::<std::net::IpAddr>().is_ok_and(|a| a.is_loopback())
+            });
+            if loopback && (cfg!(test) || allow_loopback) {
+                Ok(())
+            } else {
+                Err(WardenError::Config(
+                    "base_url must use https (http loopback needs `allow_insecure_loopback`)"
+                        .into(),
+                ))
+            }
+        }
+        s => Err(WardenError::Config(format!(
+            "base_url scheme `{s}` not allowed"
+        ))),
+    }
+}
+
+/// Read a response body with a size cap.
+pub(crate) async fn read_capped(mut resp: Response) -> Result<Vec<u8>> {
+    let too_big = || WardenError::Provider("response body too large".into());
+    if resp.content_length().is_some_and(|n| n > MAX_BODY as u64) {
+        return Err(too_big());
+    }
+    let mut buf = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(net_err)? {
+        if buf.len() + chunk.len() > MAX_BODY {
+            return Err(too_big());
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(buf)
+}
+
+/// Read a response body as text with a size cap.
+pub(crate) async fn text_capped(resp: Response) -> Result<String> {
+    Ok(String::from_utf8_lossy(&read_capped(resp).await?).into_owned())
+}
+
 /// Convert a transport error. The message never holds the URL.
 pub(crate) fn net_err(e: reqwest::Error) -> WardenError {
     let e = e.without_url();
@@ -85,7 +139,7 @@ async fn map_status(resp: Response, throttle_in_body: bool) -> Result<Response> 
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.trim().parse::<u64>().ok())
         .map(Duration::from_secs);
-    let body = resp.text().await.unwrap_or_default();
+    let body = text_capped(resp).await.unwrap_or_default();
     Err(match status {
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
             WardenError::ProviderAuth(format!("HTTP {}: {}", status.as_u16(), snippet(&body)))
@@ -108,9 +162,9 @@ async fn map_status(resp: Response, throttle_in_body: bool) -> Result<Response> 
 
 /// Parse a JSON response body.
 pub(crate) async fn json<T: DeserializeOwned>(resp: Response) -> Result<T> {
-    resp.json::<T>()
-        .await
-        .map_err(|e| WardenError::Provider(format!("bad response body: {}", e.without_url())))
+    let bytes = read_capped(resp).await?;
+    serde_json::from_slice(&bytes)
+        .map_err(|e| WardenError::Provider(format!("bad response body: {e}")))
 }
 
 /// Format headers for debug output. Secret-bearing headers are redacted.
@@ -141,6 +195,13 @@ pub(crate) fn cfg_str(c: &serde_json::Value, key: &str) -> Option<String> {
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(str::to_string)
+}
+
+/// Read the optional `allow_insecure_loopback` config flag.
+pub(crate) fn cfg_loopback(c: &serde_json::Value) -> bool {
+    c.get("allow_insecure_loopback")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 /// Reject a token name without the `aivw_` prefix.
@@ -203,5 +264,28 @@ mod tests {
         let s = fmt_headers(&h);
         assert!(!s.contains("abc") && !s.contains("glpat-xyz"));
         assert!(s.contains("accept: json"));
+    }
+
+    #[test]
+    fn refuses_plain_http_for_remote_hosts() {
+        assert!(Http::new("http://example.com/api", true).is_err());
+        assert!(Http::new("http://10.0.0.1/api", true).is_err());
+        assert!(Http::new("ftp://localhost", true).is_err());
+        assert!(Http::new("https://example.com/api", false).is_ok());
+        assert!(Http::new("http://127.0.0.1:8080", true).is_ok());
+    }
+
+    #[tokio::test]
+    async fn caps_response_size() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![b'a'; MAX_BODY + 1]))
+            .mount(&s)
+            .await;
+        let h = Http::new(s.uri(), true).unwrap();
+        let r = h.send(h.client.get(h.url("/"))).await.unwrap();
+        assert!(read_capped(r).await.is_err());
     }
 }

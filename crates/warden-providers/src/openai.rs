@@ -1,6 +1,6 @@
 //! OpenAI provider: admin API keys and project service accounts.
 
-use crate::http::{Http, cfg_str, check_name, json};
+use crate::http::{Http, cfg_loopback, cfg_str, check_name, json};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -66,7 +66,10 @@ impl OpenAi {
     /// Build from provider config.
     pub fn from_config(c: &Value) -> Result<Self> {
         Ok(Self {
-            http: Http::new(cfg_str(c, "base_url").unwrap_or_else(|| DEFAULT_BASE.into()))?,
+            http: Http::new(
+                cfg_str(c, "base_url").unwrap_or_else(|| DEFAULT_BASE.into()),
+                cfg_loopback(c),
+            )?,
             project_id: cfg_str(c, "project_id"),
             admin_key_id: cfg_str(c, "admin_key_id"),
         })

@@ -414,6 +414,7 @@ fn load_ops(
     key: &[u8; 32],
     devices: &[DeviceEntry],
     seen: &Seen,
+    own: DeviceId,
 ) -> Result<Loaded> {
     let mut out = Loaded::default();
     let ops_dir = dir.join("ops");
@@ -450,10 +451,23 @@ fn load_ops(
                 }
             }
             let mut prev = ZERO;
+            let mut valid = seqs.len() as u64;
             for seq in 1..=seqs.len() as u64 {
                 let raw = fs::read(path.join(format!("{seq}.op")))?;
-                let env: Envelope = serde_json::from_slice(&raw)
-                    .map_err(|e| verr(format!("op {seq} of {did} is corrupt: {e}")))?;
+                let env: Envelope = match serde_json::from_slice(&raw) {
+                    Ok(env) => env,
+                    Err(_) if did == own && seq == seqs.len() as u64 => {
+                        // A crash left a truncated last op of this device. No later op
+                        // depends on it. Move it aside and go on.
+                        let from = path.join(format!("{seq}.op"));
+                        let to = path.join(format!("{seq}.op.corrupt"));
+                        tracing::warn!("quarantine truncated last op {seq} of own device {did}");
+                        fs::rename(&from, &to)?;
+                        valid = seq - 1;
+                        break;
+                    }
+                    Err(e) => return Err(verr(format!("op {seq} of {did} is corrupt: {e}"))),
+                };
                 if env.v != OP_VERSION || env.device != did || env.seq != seq {
                     return Err(verr(format!("op {seq} of {did} has a bad envelope")));
                 }
@@ -511,7 +525,7 @@ fn load_ops(
                 }
                 prev = hash;
             }
-            out.chains.insert(did, (seqs.len() as u64, prev));
+            out.chains.insert(did, (valid, prev));
         }
     }
     for (d, e) in &seen.devices {
@@ -751,6 +765,7 @@ impl Vault {
             &self.vault_key,
             &self.devices,
             &seen,
+            self.device_id,
         )?;
         let mut changed = false;
         for (d, (n, h)) in &loaded.chains {

@@ -1,6 +1,6 @@
 //! Cloudflare provider: user API tokens (verify, roll, create, delete).
 
-use crate::http::{Http, cfg_str, check_name, json};
+use crate::http::{Http, cfg_loopback, cfg_str, check_name, json};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -56,7 +56,10 @@ impl Cloudflare {
     /// Build from provider config.
     pub fn from_config(c: &Value) -> Result<Self> {
         Ok(Self {
-            http: Http::new(cfg_str(c, "base_url").unwrap_or_else(|| DEFAULT_BASE.into()))?,
+            http: Http::new(
+                cfg_str(c, "base_url").unwrap_or_else(|| DEFAULT_BASE.into()),
+                cfg_loopback(c),
+            )?,
             policies: c.get("policies").filter(|p| p.is_array()).cloned(),
         })
     }
@@ -115,12 +118,19 @@ impl Provider for Cloudflare {
             .json(&json!({}));
         let new: String = result(json::<Envelope<String>>(self.http.send(rb).await?).await?)?;
         let new = SecretValue::new(new);
-        // Verify the new value and read the end date. The roll keeps the token id.
-        let v = self.verify_inner(&new).await?;
+        // The roll already killed the old value. Never lose the new one: a failed verify
+        // only means that the end date stays unknown. The roll keeps the token id.
+        let expires_at = match self.verify_inner(&new).await {
+            Ok(v) => v.expires_on,
+            Err(e) => {
+                tracing::warn!(error = %e, "verify after roll failed; keeping the new token");
+                None
+            }
+        };
         Ok(IssuedToken {
             value: new,
             provider_token_id: id,
-            expires_at: v.expires_on,
+            expires_at,
         })
     }
 
@@ -222,6 +232,30 @@ mod tests {
             .unwrap();
         assert_eq!(t.value.expose(), "cf-new");
         assert_eq!(t.provider_token_id, "tok1");
+    }
+
+    #[tokio::test]
+    async fn rotate_keeps_new_token_when_verify_fails() {
+        let s = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/user/tokens/tok1/value"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"success": true, "result": "cf-new"})),
+            )
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/user/tokens/verify"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&s)
+            .await;
+        let t = cf(&s)
+            .rotate_self(&cred(), &rotate_req(Some("tok1")))
+            .await
+            .unwrap();
+        assert_eq!(t.value.expose(), "cf-new");
+        assert!(t.expires_at.is_none());
     }
 
     #[tokio::test]

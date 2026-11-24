@@ -30,8 +30,8 @@ pub fn atomic_write(path: &Path, data: &[u8], private: bool) -> io::Result<()> {
 /// exists, also when another writer creates it at the same time.
 ///
 /// The data goes to a temp file first and a hard link publishes it, so a reader never sees a
-/// partial file. When the file system has no hard links, the file is created with
-/// `create_new` instead.
+/// partial file. Only when the file system reports that hard links are unsupported, the file
+/// is created with `create_new` instead, and a failed write removes it.
 pub fn publish_new(path: &Path, data: &[u8], private: bool) -> io::Result<()> {
     write_atomic(path, data, private, true)
 }
@@ -64,8 +64,9 @@ fn write_atomic(path: &Path, data: &[u8], private: bool, no_replace: bool) -> io
             match fs::hard_link(&tmp, path) {
                 Ok(()) => fs::remove_file(&tmp),
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Err(e),
-                Err(_) => {
-                    // No hard links here: claim the name with `create_new`.
+                Err(e) if e.kind() == io::ErrorKind::Unsupported => {
+                    // No hard links here: claim the name with `create_new`. A failed write
+                    // removes the partial file, so no truncated file stays behind.
                     let mut o = OpenOptions::new();
                     o.write(true).create_new(true);
                     #[cfg(unix)]
@@ -74,10 +75,15 @@ fn write_atomic(path: &Path, data: &[u8], private: bool, no_replace: bool) -> io
                         o.mode(if private { 0o600 } else { 0o644 });
                     }
                     let mut f = o.open(path)?;
-                    f.write_all(data)?;
-                    f.sync_all()?;
+                    let written = f.write_all(data).and_then(|()| f.sync_all());
+                    drop(f);
+                    if let Err(e) = written {
+                        let _ = fs::remove_file(path);
+                        return Err(e);
+                    }
                     fs::remove_file(&tmp)
                 }
+                Err(e) => Err(e),
             }
         } else {
             fs::rename(&tmp, path)

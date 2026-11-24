@@ -84,11 +84,15 @@ async fn run(cmd: &[String], name: &str, input: Value) -> Result<String> {
         .map_err(|e| WardenError::Provider(format!("cannot start command: {e}")))?;
     let mut stdin = child.stdin.take().expect("piped stdin");
     let payload = serde_json::to_vec(&input)?;
-    let work = async {
+    // Write stdin while stdout and stderr drain, so a chatty script cannot block.
+    let feed = async move {
         // A script may exit before it reads stdin. Ignore a broken pipe.
         let _ = stdin.write_all(&payload).await;
         drop(stdin);
-        child.wait_with_output().await
+    };
+    let work = async {
+        let (_, out) = tokio::join!(feed, child.wait_with_output());
+        out
     };
     let out = tokio::time::timeout(TIMEOUT, work)
         .await
@@ -277,5 +281,21 @@ mod tests {
             Err(WardenError::ProviderUnsupported(_))
         ));
         assert!(!p.capabilities().self_rotate && p.capabilities().revoke);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn chatty_script_does_not_stall() {
+        let chatty = vec![
+            "sh".to_string(),
+            "-c".into(),
+            "head -c 400000 /dev/zero | tr '\0' a; head -c 400000 /dev/zero | tr '\0' b >&2; cat >/dev/null"
+                .into(),
+        ];
+        let p = CommandProvider::from_config(&json!({ "revoke": chatty })).unwrap();
+        let big = SecretValue::new("x".repeat(1_000_000));
+        let t = std::time::Instant::now();
+        p.revoke(&big, "1").await.unwrap();
+        assert!(t.elapsed() < std::time::Duration::from_secs(10));
     }
 }

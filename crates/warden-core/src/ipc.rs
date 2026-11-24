@@ -274,7 +274,10 @@ pub enum Response {
     /// Daemon status.
     Status(StatusInfo),
     /// Item list.
-    Items(Vec<ItemSummary>),
+    Items {
+        /// The items.
+        items: Vec<ItemSummary>,
+    },
     /// One item.
     Item(Box<Item>),
     /// An item was added.
@@ -285,7 +288,10 @@ pub enum Response {
     /// Settings.
     Settings(Settings),
     /// Inbox list.
-    Inbox(Vec<InboxEntry>),
+    Inbox {
+        /// The entries.
+        inbox: Vec<InboxEntry>,
+    },
     /// An inbox entry was added.
     InboxAdded {
         /// Id of the new entry.
@@ -311,7 +317,10 @@ pub enum Response {
     /// Coffee reminder state.
     Coffee(CoffeeInfo),
     /// Audit entries.
-    Audit(Vec<AuditEntry>),
+    Audit {
+        /// The entries.
+        audit: Vec<AuditEntry>,
+    },
 }
 
 #[cfg(test)]

@@ -13,21 +13,21 @@ variables:
 check:linux:
   extends: .rust
   image: rust:1.95
-  tags: [saas-linux-small-amd64]
+  tags: [docker]
   before_script:
     - rustup component add rustfmt clippy
 
 check:macos:
   extends: .rust
   image: macos-14-xcode-15
-  tags: [saas-macos-medium-m1]
+  tags: [macos]
   before_script:
     - curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.95.0 --profile minimal -c rustfmt -c clippy
     - source "$HOME/.cargo/env"
 
 check:windows:
   extends: .rust
-  tags: [saas-windows-medium-amd64]
+  tags: [windows]
   before_script:
     - Invoke-WebRequest https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
     - ./rustup-init.exe -y --default-toolchain 1.95.0 --profile minimal -c rustfmt -c clippy
@@ -36,7 +36,7 @@ check:windows:
 deny:
   stage: check
   image: rust:1.95
-  tags: [saas-linux-small-amd64]
+  tags: [docker]
   script:
     - cargo install cargo-deny --locked
     - cargo deny check

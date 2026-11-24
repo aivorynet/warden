@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use warden_core::Clock;
 
+mod pledge;
+pub use pledge::*;
+
 /// Prefix of a receipt code.
 pub const RECEIPT_PREFIX: &str = "aivw-receipt-";
 /// Link where the user pays for a coffee.
@@ -94,6 +97,7 @@ pub fn verify_with_key(code: &str, pubkey: &[u8; 32]) -> Result<Receipt, CoffeeE
 
 /// Coffee state in the local settings file. It is not synced.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CoffeeState {
     /// Year of the valid receipt, if any.
     pub paid_year: Option<i32>,
@@ -101,6 +105,14 @@ pub struct CoffeeState {
     pub receipt_id: Option<String>,
     /// Time of the last reminder note.
     pub last_note_at: Option<DateTime<Utc>>,
+    /// Time when the user signed the coffee pledge at first run.
+    pub pledge_signed_at: Option<DateTime<Utc>>,
+    /// User name that signed the pledge.
+    pub pledge_signed_by: Option<String>,
+    /// The note after the first successful rotation was shown.
+    pub first_rotation_noted: bool,
+    /// Successful rotations since the last note.
+    pub rotations_since_note: u32,
 }
 
 impl CoffeeState {
@@ -343,6 +355,7 @@ mod tests {
             paid_year: Some(2026),
             receipt_id: Some("x".into()),
             last_note_at: Some(at(2026, 11, 1)),
+            ..Default::default()
         };
         store.save(&st).unwrap();
         assert_eq!(store.load().unwrap(), st);

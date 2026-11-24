@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Save to Warden</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<main class="app">
+  <header>
+    <svg width="22" height="22" viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M14 2 L24 6 V13 C24 19.5 19.8 24.2 14 26 C8.2 24.2 4 19.5 4 13 V6 Z" stroke="#B6F36A" stroke-width="2" stroke-linejoin="round"></path><circle cx="14" cy="12" r="3" stroke="#B6F36A" stroke-width="2"></circle></svg>
+    <strong>Save to Warden</strong>
+    <span id="status" class="status">checking</span>
+  </header>
+
+  <section class="capture">
+    <div class="field"><span class="lbl">Page</span><span id="page" class="mono small">-</span></div>
+    <button id="scan" type="button" class="secondary">Scan this page</button>
+    <p id="msg" class="note" role="status"></p>
+    <div id="cands" class="cands" hidden></div>
+    <form id="form" hidden>
+      <div class="field"><span class="lbl">Value found on this page</span><span id="masked" class="box mono">-</span></div>
+      <label class="field"><span class="lbl">Name</span><input id="label" class="box mono" required maxlength="80" autocomplete="off"></label>
+      <div class="grid">
+        <label class="field"><span class="lbl">Provider</span>
+          <select id="provider" class="box"><option value="gitlab">GitLab</option><option value="cloudflare">Cloudflare</option><option value="openai">OpenAI</option><option value="aws">AWS</option><option value="github">GitHub</option><option value="other">Other</option></select>
+        </label>
+        <label class="field"><span class="lbl">Expires</span><input id="expires" type="date" class="box"></label>
+      </div>
+      <button id="send" type="submit" class="primary">Send to inbox</button>
+      <p class="note">You confirm the token in the Warden app. The page cannot add tokens by itself.</p>
+    </form>
+  </section>
+
+  <section class="inbox" aria-labelledby="inb">
+    <h2 id="inb">Waiting in inbox</h2>
+    <div id="inbox"></div>
+  </section>
+</main>
+<script type="module" src="popup.js"></script>
+</body>
+</html>

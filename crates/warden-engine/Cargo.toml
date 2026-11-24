@@ -8,6 +8,20 @@ publish.workspace = true
 
 [dependencies]
 warden-core.workspace = true
+warden-vault.workspace = true
+warden-providers.workspace = true
+chacha20poly1305 = "0.10"
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v7", "serde"] }
+
+[dev-dependencies]
+async-trait = "0.1"
+tempfile = "3"
 
 [lints]
 workspace = true

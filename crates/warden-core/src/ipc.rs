@@ -39,7 +39,7 @@ impl Capability {
             Capability::McpAdmin => {
                 Capability::McpUse.allows(req) || matches!(req, UpdatePolicy { .. })
             }
-            Capability::InboxWrite => matches!(req, InboxAdd { .. }),
+            Capability::InboxWrite => matches!(req, InboxAdd { .. } | InboxList),
         }
     }
 }
@@ -114,6 +114,12 @@ pub struct InboxEntry {
     pub label: String,
     /// Time of capture.
     pub captured_at: DateTime<Utc>,
+    /// Provider guess from the page.
+    #[serde(default)]
+    pub provider_hint: Option<String>,
+    /// End date that the user entered.
+    #[serde(default)]
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 /// Coffee reminder state.
@@ -202,6 +208,12 @@ pub enum Request {
         /// The captured value.
         #[serde(serialize_with = "expose::serialize")]
         value: SecretValue,
+        /// Provider guess from the page (for example `gitlab`).
+        #[serde(default)]
+        provider_hint: Option<String>,
+        /// End date that the user entered.
+        #[serde(default)]
+        expires_at: Option<DateTime<Utc>>,
     },
     /// Accept an inbox entry as a new item.
     InboxAccept {
@@ -359,6 +371,8 @@ mod tests {
             origin: "o".into(),
             label: "l".into(),
             value: SecretValue::new("v"),
+            provider_hint: None,
+            expires_at: None,
         };
         assert!(Capability::InboxWrite.allows(&add));
         assert!(!Capability::InboxWrite.allows(&Request::ListItems));

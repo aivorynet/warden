@@ -189,6 +189,8 @@ async fn oversize_frame_refused() {
         origin: "o".into(),
         label: "l".into(),
         value: SecretValue::new("a".repeat(MAX_FRAME + 1)),
+        provider_hint: None,
+        expires_at: None,
     };
     assert!(c.call(big).await.is_err());
 

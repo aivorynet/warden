@@ -1,0 +1,24 @@
+[package]
+name = "warden-native-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Native messaging host for the Save to Warden browser extension"
+
+[dependencies]
+chrono = { workspace = true }
+warden-core.workspace = true
+warden-ipc.workspace = true
+async-trait.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["rt", "macros", "io-util"] }
+
+[lints]
+workspace = true

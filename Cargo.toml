@@ -10,6 +10,7 @@ members = [
     "crates/warden-mcp",
     "crates/warden-coffee",
     "crates/aivory-warden",
+    "crates/warden-native-host",
 ]
 
 [workspace.package]
@@ -28,6 +29,7 @@ warden-engine = { path = "crates/warden-engine" }
 warden-ipc = { path = "crates/warden-ipc" }
 warden-mcp = { path = "crates/warden-mcp" }
 warden-coffee = { path = "crates/warden-coffee" }
+warden-native-host = { path = "crates/warden-native-host" }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }

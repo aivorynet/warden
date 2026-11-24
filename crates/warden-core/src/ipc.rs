@@ -67,6 +67,49 @@ pub struct ItemDraft {
     pub tags: Vec<String>,
 }
 
+/// Health of an item as the engine reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ItemStatus {
+    /// Nothing needs attention.
+    #[default]
+    Healthy,
+    /// A rotation is due now.
+    Due,
+    /// A rotation runs now.
+    Rotating,
+    /// The last rotation attempt failed. See `last_error`.
+    Failed,
+    /// The provider is manual. Warden only reminds.
+    Reminder,
+}
+
+/// A paired client, without its token or hash.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientInfo {
+    /// Short id for `Unpair`.
+    pub id: String,
+    /// Client name.
+    pub name: String,
+    /// Granted capabilities.
+    pub capabilities: Vec<Capability>,
+    /// Time of pairing.
+    pub paired_at: DateTime<Utc>,
+}
+
+/// A device in the vault device registry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceInfo {
+    /// Device id.
+    pub id: DeviceId,
+    /// Display name.
+    pub name: String,
+    /// Number of items that this device rotates.
+    pub is_rotator_for: u32,
+    /// Time of the last change that this device wrote to the vault, if any.
+    pub last_seen: Option<DateTime<Utc>>,
+}
+
 /// Short view of an item for lists.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ItemSummary {
@@ -86,6 +129,15 @@ pub struct ItemSummary {
     pub sink_count: usize,
     /// Auto-rotate on or off.
     pub auto_rotate: bool,
+    /// Health from the engine state.
+    #[serde(default)]
+    pub status: ItemStatus,
+    /// Error of the last failed attempt. Never a secret.
+    #[serde(default)]
+    pub last_error: Option<String>,
+    /// Next retry after a failure.
+    #[serde(default)]
+    pub next_retry: Option<DateTime<Utc>>,
 }
 
 /// State of the daemon.
@@ -185,6 +237,23 @@ pub enum Request {
         /// New policy.
         policy: RotationPolicy,
     },
+    /// Change the name, the sinks, the MCP policy or the tags of an item. Never a secret.
+    UpdateItem {
+        /// Item id.
+        item: ItemId,
+        /// New display name.
+        #[serde(default)]
+        name: Option<String>,
+        /// New sinks (replace the old list).
+        #[serde(default)]
+        sinks: Option<Vec<SinkSpec>>,
+        /// New MCP policy.
+        #[serde(default)]
+        mcp: Option<McpPolicy>,
+        /// New tags.
+        #[serde(default)]
+        tags: Option<Vec<String>>,
+    },
     /// Rotate an item now.
     RotateNow {
         /// Item id.
@@ -270,6 +339,20 @@ pub enum Request {
         /// Receipt code.
         code: String,
     },
+    /// Record the signed coffee pledge.
+    SignPledge {
+        /// Name of the user who signs.
+        user: String,
+    },
+    /// List the paired clients.
+    ListClients,
+    /// Remove a paired client. A `Full` client cannot be removed.
+    Unpair {
+        /// Client id from `ListClients` (at least 8 characters).
+        id: String,
+    },
+    /// List the devices of the vault.
+    ListDevices,
     /// List audit entries.
     AuditList {
         /// Only entries of this item.
@@ -342,6 +425,16 @@ pub enum Response {
         /// The entries.
         audit: Vec<AuditEntry>,
     },
+    /// Paired clients.
+    Clients {
+        /// The clients.
+        clients: Vec<ClientInfo>,
+    },
+    /// Devices of the vault.
+    Devices {
+        /// The devices.
+        devices: Vec<DeviceInfo>,
+    },
 }
 
 #[cfg(test)]
@@ -394,5 +487,32 @@ mod tests {
             policy: RotationPolicy::default()
         }));
         assert!(Capability::Full.allows(&Request::Lock));
+        let unpair = Request::Unpair { id: "x".into() };
+        let update = Request::UpdateItem {
+            item: ItemId::new(),
+            name: None,
+            sinks: None,
+            mcp: None,
+            tags: None,
+        };
+        for cap in [
+            Capability::McpUse,
+            Capability::McpAdmin,
+            Capability::InboxWrite,
+        ] {
+            assert!(!cap.allows(&Request::ListClients));
+            assert!(!cap.allows(&Request::ListDevices));
+            assert!(!cap.allows(&unpair));
+            assert!(!cap.allows(&update));
+            assert!(!cap.allows(&Request::SignPledge { user: "u".into() }));
+        }
+        assert!(Capability::Full.allows(&unpair));
+    }
+
+    #[test]
+    fn old_summary_without_status_still_parses() {
+        let j = r#"{"id":"0193f2c4-8e1a-7b3d-9a52-4c6e1f0d0001","name":"n","provider":"manual","kind":{"type":"admin"},"expires_at":null,"next_rotation":null,"sink_count":0,"auto_rotate":false}"#;
+        let s: ItemSummary = serde_json::from_str(j).unwrap();
+        assert_eq!(s.status, ItemStatus::Healthy);
     }
 }

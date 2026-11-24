@@ -9,15 +9,16 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use warden_coffee::CoffeeStore;
 use warden_core::ipc::{
-    AuditEntry, Capability, CoffeeInfo, ItemDraft, ItemSummary, Request, Response, StatusInfo,
+    AuditEntry, Capability, CoffeeInfo, DeviceInfo, ItemDraft, ItemStatus, ItemSummary, Request,
+    Response, StatusInfo,
 };
 use warden_core::{
     Clock, DeviceId, Item, ItemId, ItemKind, Result, SecretValue, Settings, SystemClock,
     WardenError, next_rotation,
 };
 use warden_engine::{
-    Engine, EngineConfig, EngineEvent, ProviderFactory, RotationRequestOutcome, RotationSource,
-    SinkFactory, TOKEN_SECRET,
+    Engine, EngineConfig, EngineEvent, ItemStatus as EngineStatus, ProviderFactory,
+    RotationRequestOutcome, RotationSource, SinkFactory, TOKEN_SECRET,
 };
 use warden_ipc::{Handler, Server, Session};
 use warden_mcp::proxy::{self, HttpCall};
@@ -288,16 +289,32 @@ impl Daemon {
         Response::Ok
     }
 
-    fn summary(&self, item: &Item, settings: &Settings) -> ItemSummary {
+    fn summary(&self, item: &Item, settings: &Settings, engine: &Engine) -> ItemSummary {
+        let now = self.clock.now();
+        let next = next_rotation(item, settings, now);
+        let (status, last_error, next_retry) = match engine.status(&item.id) {
+            EngineStatus::Rotating => (ItemStatus::Rotating, None, None),
+            EngineStatus::Failed {
+                error, next_retry, ..
+            } => (ItemStatus::Failed, Some(error), Some(next_retry)),
+            _ if item.provider.kind == warden_core::ProviderKind::Manual => {
+                (ItemStatus::Reminder, None, None)
+            }
+            _ if next.is_some_and(|n| n <= now) => (ItemStatus::Due, None, None),
+            _ => (ItemStatus::Healthy, None, None),
+        };
         ItemSummary {
             id: item.id,
             name: item.name.clone(),
             provider: item.provider.kind,
             kind: item.kind,
             expires_at: item.expires_at,
-            next_rotation: next_rotation(item, settings, self.clock.now()),
+            next_rotation: next,
             sink_count: item.sinks.len(),
             auto_rotate: item.policy.auto_rotate,
+            status,
+            last_error,
+            next_retry,
         }
     }
 
@@ -373,19 +390,138 @@ impl Daemon {
             );
         }
         item.policy = policy;
-        let mut secrets = std::collections::BTreeMap::new();
-        for name in v.secret_names(&id) {
-            match v.secret(&id, &name) {
-                Ok(s) => {
-                    secrets.insert(name, s);
+        rewrite_item(&mut v, item)
+    }
+
+    fn update_item(
+        &self,
+        id: ItemId,
+        name: Option<String>,
+        sinks: Option<Vec<warden_core::SinkSpec>>,
+        mcp: Option<warden_core::McpPolicy>,
+        tags: Option<Vec<String>>,
+    ) -> Response {
+        let u = match self.require() {
+            Ok(u) => u,
+            Err(r) => return r,
+        };
+        if let Some(list) = &sinks {
+            for spec in list {
+                if let Err(e) = warden_sinks::build(spec) {
+                    return error("bad_request", format!("invalid sink: {e}"));
                 }
-                Err(e) => return err_resp(&e),
             }
         }
-        match v.put(item, secrets) {
+        let mut v = lock(&u.vault);
+        let Some(mut item) = v.get(&id).cloned() else {
+            return error("not_found", format!("item {id}"));
+        };
+        if let Some(n) = name {
+            if n.trim().is_empty() {
+                return error("bad_request", "name is empty");
+            }
+            if v.items()
+                .iter()
+                .any(|i| i.id != id && i.name.eq_ignore_ascii_case(&n))
+            {
+                return error("conflict", "an item with this name exists");
+            }
+            item.name = n;
+        }
+        if let Some(s) = sinks {
+            item.sinks = s;
+        }
+        if let Some(m) = mcp {
+            item.mcp = m;
+        }
+        if let Some(t) = tags {
+            item.tags = t;
+        }
+        rewrite_item(&mut v, item)
+    }
+
+    fn sign_pledge(&self, user: &str) -> Response {
+        let user = user.trim();
+        if user.is_empty() || user.chars().count() > 128 {
+            return error("bad_request", "user must have 1 to 128 characters");
+        }
+        let _g = lock(&self.coffee_lock);
+        let store = CoffeeStore::new(self.paths.settings_file());
+        let mut st = match store.load() {
+            Ok(st) => st,
+            Err(e) => return error("internal", e.to_string()),
+        };
+        if warden_coffee::is_pledged(&st) {
+            return Response::Ok;
+        }
+        warden_coffee::sign_pledge(&mut st, user, self.clock.as_ref());
+        match store.save(&st) {
             Ok(()) => Response::Ok,
+            Err(e) => error("internal", e.to_string()),
+        }
+    }
+
+    fn list_clients(&self) -> Response {
+        match PairingFile::new(self.paths.pairing_file()).list() {
+            Ok(clients) => Response::Clients { clients },
             Err(e) => err_resp(&e),
         }
+    }
+
+    fn unpair(&self, id: &str) -> Response {
+        let id = id.trim();
+        if id.len() < 8 {
+            return error("bad_request", "client id needs at least 8 characters");
+        }
+        let file = PairingFile::new(self.paths.pairing_file());
+        let clients = match file.list() {
+            Ok(c) => c,
+            Err(e) => return err_resp(&e),
+        };
+        let mut hits = clients.iter().filter(|c| c.id.starts_with(id));
+        let (Some(c), None) = (hits.next(), hits.next()) else {
+            return if clients.iter().any(|c| c.id.starts_with(id)) {
+                error("bad_request", "client id is not unique")
+            } else {
+                error("not_found", format!("client {id}"))
+            };
+        };
+        if c.capabilities.contains(&Capability::Full) {
+            return error("forbidden", "a Full client cannot be unpaired");
+        }
+        match file.remove(&c.id) {
+            Ok(true) => Response::Ok,
+            Ok(false) => error("not_found", format!("client {id}")),
+            Err(e) => err_resp(&e),
+        }
+    }
+
+    fn list_devices(&self) -> Response {
+        let u = match self.require() {
+            Ok(u) => u,
+            Err(r) => return r,
+        };
+        let v = lock(&u.vault);
+        let mut seen: std::collections::HashMap<DeviceId, chrono::DateTime<Utc>> =
+            Default::default();
+        for r in v.audit() {
+            let e = seen.entry(r.device_id).or_insert(r.at);
+            if r.at > *e {
+                *e = r.at;
+            }
+        }
+        let items = v.items();
+        let devices = v
+            .devices()
+            .iter()
+            .map(|d| DeviceInfo {
+                id: d.id,
+                name: d.name.clone(),
+                is_rotator_for: items.iter().filter(|i| i.rotator_device == d.id).count() as u32,
+                last_seen: seen.get(&d.id).copied(),
+            })
+            .collect();
+        Response::Devices { devices }
     }
 
     async fn rotate(&self, session: &Session, id: ItemId) -> Response {
@@ -672,7 +808,11 @@ impl Handler for Daemon {
                     let s = self.settings();
                     let v = lock(&u.vault);
                     Response::Items {
-                        items: v.items().into_iter().map(|i| self.summary(i, &s)).collect(),
+                        items: v
+                            .items()
+                            .into_iter()
+                            .map(|i| self.summary(i, &s, &u.engine))
+                            .collect(),
                     }
                 }
             },
@@ -685,6 +825,17 @@ impl Handler for Daemon {
             },
             Request::AddItem { draft, secret } => self.add_item(draft, secret),
             Request::UpdatePolicy { item, policy } => self.update_policy(session, item, policy),
+            Request::UpdateItem {
+                item,
+                name,
+                sinks,
+                mcp,
+                tags,
+            } => self.update_item(item, name, sinks, mcp, tags),
+            Request::SignPledge { user } => self.sign_pledge(&user),
+            Request::ListClients => self.list_clients(),
+            Request::Unpair { id } => self.unpair(&id),
+            Request::ListDevices => self.list_devices(),
             Request::RotateNow { item } => self.rotate(session, item).await,
             Request::DeleteItem { item } => match self.require() {
                 Err(r) => r,
@@ -740,6 +891,24 @@ impl Handler for Daemon {
             Request::CoffeeReceipt { code } => self.coffee_receipt(&code),
             Request::AuditList { item, limit } => self.audit(item, limit),
         }
+    }
+}
+
+/// Save `item` with its current secrets, so the vault writes a new version.
+fn rewrite_item(v: &mut Vault, item: Item) -> Response {
+    let id = item.id;
+    let mut secrets = std::collections::BTreeMap::new();
+    for name in v.secret_names(&id) {
+        match v.secret(&id, &name) {
+            Ok(s) => {
+                secrets.insert(name, s);
+            }
+            Err(e) => return err_resp(&e),
+        }
+    }
+    match v.put(item, secrets) {
+        Ok(()) => Response::Ok,
+        Err(e) => err_resp(&e),
     }
 }
 

@@ -48,14 +48,15 @@ let inbox: InboxEntry[] = [
   { id: "0193f2c4-8e1a-7b3d-9a52-4c6e1f0d9002", origin: "platform.openai.com", label: "openai-admin", captured_at: iso(-3600), provider_hint: "openai", expires_at: null },
 ];
 let mcpClients: McpClient[] = [
-  { id: "a1b2c3d4e5f6", name: "Claude Code", caps: ["mcp_use"], created_at: "2026-11-12T10:00:00Z" },
-  { id: "f6e5d4c3b2a1", name: "ops-agent", caps: ["mcp_use", "mcp_admin"], created_at: "2026-11-20T10:00:00Z" },
+  { id: "a1b2c3d4e5f6", name: "Claude Code", capabilities: ["mcp_use"], paired_at: "2026-11-12T10:00:00Z" },
+  { id: "f6e5d4c3b2a1", name: "ops-agent", capabilities: ["mcp_use", "mcp_admin"], paired_at: "2026-11-20T10:00:00Z" },
+  { id: "0a0a0a0a0a0a", name: "desktop", capabilities: ["full"], paired_at: "2026-11-01T10:00:00Z" },
 ];
 
-/** Status overrides for the stamps that the daemon does not report yet. */
-export const mockOverrides: Record<string, { stamp: "ROTATING" | "FAILED"; message?: string }> = {
-  [uid(4)]: { stamp: "ROTATING" },
-  [uid(5)]: { stamp: "FAILED", message: "build-02 refused the SSH key. The new token is safe in the vault." },
+/** Statuses that the sample daemon reports. */
+const sampleStatus: Record<string, Pick<Summary, "status" | "last_error" | "next_retry">> = {
+  [uid(4)]: { status: "rotating", last_error: null, next_retry: null },
+  [uid(5)]: { status: "failed", last_error: "build-02 refused the SSH key. The new token is safe in the vault.", next_retry: iso(3600) },
 };
 
 const status = (): Status => ({ version: "2026.11.0", locked: false, device_id: "0193f2c4-8e1a-7b3d-9a52-4c6e1f0d0014", item_count: items.length, inbox_count: inbox.length });
@@ -63,6 +64,7 @@ const coffee = (): Coffee => ({ paid_year: paidYear, reminder_due: false, link: 
 const summary = (i: Item): Summary => ({
   id: i.id, name: i.name, provider: i.provider.kind, kind: i.kind, expires_at: i.expires_at,
   next_rotation: i.policy.auto_rotate ? iso(nextOf[i.id] ?? 30 * DAY) : null, sink_count: i.sinks.length, auto_rotate: i.policy.auto_rotate,
+  ...(sampleStatus[i.id] ?? { status: i.provider.kind === "manual" ? "reminder" : i.policy.auto_rotate && (nextOf[i.id] ?? 1) <= 0 ? "due" : "healthy", last_error: null, next_retry: null }),
 });
 const audit = (id: string | null): Audit[] => {
   const base: Audit[] = [
@@ -102,6 +104,15 @@ export async function mockCall(req: Record<string, any>): Promise<Record<string,
       if (it) it.policy = req["policy"];
       return { type: "ok" };
     }
+    case "update_item": {
+      const it = items.find((i) => i.id === req["item"]);
+      if (!it) return { type: "error", code: "not_found", message: "item not found" };
+      if (req["name"] != null) it.name = req["name"];
+      if (req["sinks"] != null) it.sinks = req["sinks"];
+      if (req["mcp"] != null) it.mcp = req["mcp"];
+      if (req["tags"] != null) it.tags = req["tags"];
+      return { type: "ok" };
+    }
     case "rotate_now": return { type: "ok" };
     case "delete_item": items = items.filter((i) => i.id !== req["item"]); return { type: "ok" };
     case "unlock": case "lock": return { type: "ok" };
@@ -119,8 +130,12 @@ export async function mockCall(req: Record<string, any>): Promise<Record<string,
     case "audit_list": return { type: "audit", audit: audit(req["item"] ?? null) };
     case "sign_pledge": pledged = true; return { type: "ok" };
     case "init": return { type: "ok", kit: { secret_key: "A3-7KQ2M-9XW4T-PR8D6-F2HNC-5JV9Q", vault: "0193f2c4-8e1a-7b3d-9a52-4c6e1f0d2b77", device: "PAUL-LAPTOP", ticket: "AIVW-2026-6909" } };
-    case "mcp_clients": return { clients: mcpClients };
+    case "list_clients": return { type: "clients", clients: mcpClients };
     case "unpair": mcpClients = mcpClients.filter((c) => c.id !== req["id"]); return { type: "ok" };
+    case "list_devices": return { type: "devices", devices: [
+      { id: "0193f2c4-8e1a-7b3d-9a52-4c6e1f0d0014", name: "PAUL-LAPTOP", is_rotator_for: items.length, last_seen: iso(-3600) },
+      { id: "0193f2c4-8e1a-7b3d-9a52-4c6e1f0d0099", name: "build-01", is_rotator_for: 0, last_seen: iso(-3 * DAY) },
+    ] };
     default: return { type: "error", code: "bad_request", message: `unknown request ${String(req["type"])}` };
   }
 }

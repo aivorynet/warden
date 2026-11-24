@@ -19,7 +19,7 @@ serde_json.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-deep-link = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
-tokio = { workspace = true, features = ["process", "time"] }
+tokio = { workspace = true, features = ["process", "time", "io-util"] }
 chrono.workspace = true
 open = "5"
 

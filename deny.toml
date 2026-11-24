@@ -39,3 +39,9 @@ unmaintained = "workspace"
 ignore = [
     { id = "RUSTSEC-2026-0543", reason = "chrono is mandated by the spec (DateTime<Utc> in wire types); revisit jiff or time later" },
 ]
+
+# CC0-1.0 is a public-domain dedication (FSF-free, not OSI-listed). Allowed only for this crate,
+# which comes in through the Tauri tree (const-random).
+[[licenses.exceptions]]
+crate = "tiny-keccak"
+allow = ["CC0-1.0"]

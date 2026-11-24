@@ -349,3 +349,262 @@ fn second_daemon_is_refused() {
     assert!(!o.status.success());
     assert!(String::from_utf8_lossy(&o.stderr).contains("another daemon"));
 }
+
+/// Add a token with the CLI. `provider_json` is the Command provider config.
+fn add_token(env: &Env, name: &str, provider_json: &serde_json::Value) {
+    let cfg_file = env.work.join(format!("{name}.provider.json"));
+    std::fs::write(&cfg_file, provider_json.to_string()).unwrap();
+    let mut add = env.awd(&[
+        "add",
+        "--name",
+        name,
+        "--provider",
+        "command",
+        "--config-file",
+        cfg_file.to_str().unwrap(),
+        "--auto",
+        "off",
+        "--secret-stdin",
+    ]);
+    add.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = add.spawn().unwrap();
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"seed-secret\n")
+            .unwrap();
+    }
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+fn code_of(r: Response) -> String {
+    match r {
+        Response::Error { code, .. } => code,
+        other => panic!("expected an error, got {other:?}"),
+    }
+}
+
+#[test]
+fn desktop_requests_status_and_capabilities() {
+    use warden_core::SinkSpec;
+    use warden_core::ipc::{Capability, ItemStatus};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let env = Env {
+        home: tmp.path().join("home"),
+        work: tmp.path().join("work"),
+    };
+    std::fs::create_dir_all(&env.work).unwrap();
+    let _daemon = start_daemon(&env);
+
+    // init with the password on stdin and a JSON result.
+    let mut init = env.awd(&[
+        "init",
+        "--pledge",
+        "--insecure-fast-kdf",
+        "--password-stdin",
+        "--json",
+        "--device-name",
+        "e2e-device",
+    ]);
+    init.env_remove("WARDEN_PASSWORD")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = init.spawn().unwrap();
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(format!("{PASSWORD}\n").as_bytes())
+            .unwrap();
+    }
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let kit: serde_json::Value = serde_json::from_slice(&out.stdout).expect("init --json");
+    assert!(kit["secret_key"].as_str().unwrap().starts_with("A3-"));
+    assert_eq!(kit["unlocked"], true);
+    assert_eq!(kit["device"], "e2e-device");
+
+    // a token that fails to rotate, and a working one for the sink checks.
+    let fail: Vec<&str> = if cfg!(windows) {
+        vec!["cmd", "/C", "exit 1"]
+    } else {
+        vec!["sh", "-c", "exit 1"]
+    };
+    add_token(
+        &env,
+        "failing",
+        &serde_json::json!({ "rotate": fail, "revoke": fail, "class": "overlap" }),
+    );
+    add_token(&env, "working", &provider_config(&env.work));
+
+    let pairing = env.ok(&["pair", "agent", "--cap", "mcp"]);
+    let mcp_token = pairing
+        .lines()
+        .find(|l| l.starts_with("aivw_"))
+        .unwrap()
+        .trim()
+        .to_owned();
+    let cli_token = std::fs::read_to_string(env.home.join("config").join("cli.token"))
+        .unwrap()
+        .trim()
+        .to_owned();
+    let endpoint = Paths::from_home(env.home.clone()).endpoint();
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let mut mcp = Client::connect(endpoint.as_deref(), Some(&mcp_token))
+            .await
+            .unwrap();
+        let mut full = Client::connect(endpoint.as_deref(), Some(&cli_token))
+            .await
+            .unwrap();
+
+        let Response::Items { items } = full.call(Request::ListItems).await.unwrap() else {
+            panic!("no list");
+        };
+        assert!(items.iter().all(|i| i.status == ItemStatus::Healthy));
+        let failing = items.iter().find(|i| i.name == "failing").unwrap().id;
+        let working = items.iter().find(|i| i.name == "working").unwrap().id;
+
+        // an MCP client may not list clients, unpair, or update an item.
+        assert_eq!(
+            code_of(mcp.call(Request::ListClients).await.unwrap()),
+            "forbidden"
+        );
+        assert_eq!(
+            code_of(
+                mcp.call(Request::Unpair {
+                    id: "0123456789ab".into()
+                })
+                .await
+                .unwrap()
+            ),
+            "forbidden"
+        );
+        let rename = Request::UpdateItem {
+            item: working,
+            name: Some("hijacked".into()),
+            sinks: None,
+            mcp: None,
+            tags: None,
+        };
+        assert_eq!(code_of(mcp.call(rename).await.unwrap()), "forbidden");
+
+        // a Full client: invalid sink refused, valid change saved.
+        let bad = Request::UpdateItem {
+            item: working,
+            name: None,
+            sinks: Some(vec![SinkSpec::Regex {
+                path: env.work.join("x.txt"),
+                pattern: "(".into(),
+                template: "{{secret}}".into(),
+            }]),
+            mcp: None,
+            tags: None,
+        };
+        assert_eq!(code_of(full.call(bad).await.unwrap()), "bad_request");
+        let good = Request::UpdateItem {
+            item: working,
+            name: Some("working-2".into()),
+            sinks: Some(vec![SinkSpec::Dotenv {
+                path: env.work.join("w.env"),
+                key: "W".into(),
+            }]),
+            mcp: None,
+            tags: Some(vec!["t".into()]),
+        };
+        assert!(matches!(full.call(good).await.unwrap(), Response::Ok));
+        let Response::Items { items } = full.call(Request::ListItems).await.unwrap() else {
+            panic!("no list");
+        };
+        let w = items.iter().find(|i| i.id == working).unwrap();
+        assert_eq!((w.name.as_str(), w.sink_count), ("working-2", 1));
+
+        // a rotation failure shows as Failed with an error text and a retry time.
+        assert!(matches!(
+            full.call(Request::RotateNow { item: failing })
+                .await
+                .unwrap(),
+            Response::Error { .. }
+        ));
+        let Response::Items { items } = full.call(Request::ListItems).await.unwrap() else {
+            panic!("no list");
+        };
+        let f = items.iter().find(|i| i.id == failing).unwrap();
+        assert_eq!(f.status, ItemStatus::Failed);
+        assert!(f.last_error.as_deref().is_some_and(|e| !e.is_empty()));
+        assert!(!f.last_error.as_deref().unwrap().contains("seed-secret"));
+        assert!(f.next_retry.is_some());
+
+        // clients, unpair, devices, pledge.
+        let Response::Clients { clients } = full.call(Request::ListClients).await.unwrap() else {
+            panic!("no clients");
+        };
+        let agent = clients.iter().find(|c| c.name == "agent").unwrap();
+        assert_eq!(agent.capabilities, vec![Capability::McpUse]);
+        let cli = clients
+            .iter()
+            .find(|c| c.capabilities.contains(&Capability::Full))
+            .unwrap();
+        assert_eq!(
+            code_of(
+                full.call(Request::Unpair { id: cli.id.clone() })
+                    .await
+                    .unwrap()
+            ),
+            "forbidden"
+        );
+        assert!(matches!(
+            full.call(Request::Unpair {
+                id: agent.id.clone()
+            })
+            .await
+            .unwrap(),
+            Response::Ok
+        ));
+        let Response::Clients { clients } = full.call(Request::ListClients).await.unwrap() else {
+            panic!("no clients");
+        };
+        assert!(clients.iter().all(|c| c.name != "agent"));
+        let Response::Devices { devices } = full.call(Request::ListDevices).await.unwrap() else {
+            panic!("no devices");
+        };
+        assert!(
+            devices
+                .iter()
+                .any(|d| d.name == "e2e-device" && d.is_rotator_for == 2)
+        );
+        assert!(matches!(
+            full.call(Request::SignPledge {
+                user: "tester".into()
+            })
+            .await
+            .unwrap(),
+            Response::Ok
+        ));
+    });
+
+    // CLI verbs for the same requests.
+    let devices = env.ok(&["devices"]);
+    assert!(devices.contains("e2e-device"), "{devices}");
+    let listed = env.ok(&["pair", "--list"]);
+    assert!(listed.contains("cli"), "{listed}");
+}

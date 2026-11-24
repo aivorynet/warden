@@ -2,18 +2,12 @@
 import { append, h, svg, type Child } from "./dom.js";
 import type { AppState, Coffee, Kit, StampName, Summary } from "./types.js";
 import { DAY } from "./types.js";
-import { mockOverrides } from "./mock.js";
-import { isTauri } from "./api.js";
-
-export type Override = { stamp: "ROTATING" | "FAILED"; message?: string };
 
 export const S = {
   app: null as AppState | null,
   coffee: null as Coffee | null,
   kit: null as Kit | null,
   inbox: 0,
-  /** Stamps that the daemon does not report. The UI sets them for the session. */
-  overrides: (isTauri ? {} : { ...mockOverrides }) as Record<string, Override>,
   go: (_route: string): void => {},
   refresh: async (): Promise<void> => {},
 };
@@ -138,13 +132,9 @@ export const PROVIDERS: { kind: string; label: string; hint: string }[] = [
 
 export const providerLabel = (kind: string): string => PROVIDERS.find((p) => p.kind === kind)?.label ?? kind;
 
-/** Compute the stamp of a token from what the daemon reports. */
-export function stampOf(s: Summary): { name: StampName; override?: Override } {
-  const o = S.overrides[s.id];
-  if (o) return { name: o.stamp, override: o };
-  if (s.provider === "manual") return { name: "REMINDER" };
-  if (s.next_rotation && new Date(s.next_rotation).getTime() <= Date.now() + DAY * 1000) return { name: "DUE" };
-  return { name: "HEALTHY" };
+/** The stamp of a token. The daemon reports the status. */
+export function stampOf(s: Summary): { name: StampName } {
+  return { name: s.status.toUpperCase() as StampName };
 }
 
 export function slugify(name: string): string {

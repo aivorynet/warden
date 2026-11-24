@@ -10,7 +10,7 @@ use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use warden_coffee::{CoffeeStore, THANKS_TEXT};
-use warden_core::ipc::{Capability, ItemDraft, ItemSummary, Request, Response};
+use warden_core::ipc::{Capability, ItemDraft, ItemStatus, ItemSummary, Request, Response};
 use warden_core::{
     Clock, ItemId, ItemKind, McpPolicy, ProviderKind, ProviderRef, Result, RotationPolicy,
     SecretValue, SinkSpec, SystemClock, WardenError,
@@ -84,8 +84,15 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<InboxCmd>,
     },
-    /// Pair a client (MCP server, native host). The token is shown once.
+    /// Pair a client (MCP server, native host), or list the paired clients.
     Pair(PairArgs),
+    /// Remove a paired client (use the id from `awd pair --list`).
+    Unpair {
+        /// Client id (at least 8 characters).
+        id: String,
+    },
+    /// List the devices of the vault.
+    Devices,
     /// Show the audit log.
     Audit {
         /// Only this token.
@@ -129,6 +136,12 @@ struct InitArgs {
     /// Sign the coffee pledge without a prompt (scripts and tests).
     #[arg(long)]
     pledge: bool,
+    /// Read the vault password from the first line of stdin.
+    #[arg(long)]
+    password_stdin: bool,
+    /// Print the result as one JSON object (no Emergency Kit text).
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -303,7 +316,11 @@ enum CapArg {
 #[derive(Debug, Args)]
 struct PairArgs {
     /// Name of the client.
-    name: String,
+    #[arg(required_unless_present = "list")]
+    name: Option<String>,
+    /// List the paired clients instead of pairing one.
+    #[arg(long, conflicts_with_all = ["name", "save"])]
+    list: bool,
     /// Capability: mcp, mcp-admin or inbox. Repeat for more.
     #[arg(long = "cap", value_enum, default_value = "mcp")]
     caps: Vec<CapArg>,
@@ -428,6 +445,8 @@ async fn run(ctx: &Ctx, cmd: Cmd) -> Code {
         Cmd::Rm { name, yes } => rm(ctx, &name, yes).await,
         Cmd::Inbox { cmd } => inbox(ctx, cmd).await,
         Cmd::Pair(a) => pair(ctx, a).await,
+        Cmd::Unpair { id } => unpair(ctx, &id).await,
+        Cmd::Devices => devices(ctx).await,
         Cmd::Audit { name, limit } => audit(ctx, name, limit).await,
         Cmd::Exec(a) => exec(ctx, a),
         Cmd::Coffee { receipt } => coffee(ctx, receipt).await,
@@ -560,16 +579,14 @@ fn provider_name(k: ProviderKind) -> &'static str {
 }
 
 fn item_status(s: &ItemSummary, now: DateTime<Utc>) -> &'static str {
-    if s.expires_at.is_some_and(|e| e <= now) {
-        "expired"
-    } else if s.provider == ProviderKind::Manual {
-        "reminder"
-    } else if !s.auto_rotate {
-        "manual"
-    } else if s.next_rotation.is_some_and(|n| n <= now) {
-        "due"
-    } else {
-        "healthy"
+    match s.status {
+        ItemStatus::Failed => "failed",
+        ItemStatus::Rotating => "rotating",
+        _ if s.expires_at.is_some_and(|e| e <= now) => "expired",
+        ItemStatus::Reminder => "reminder",
+        _ if !s.auto_rotate => "manual",
+        ItemStatus::Due => "due",
+        ItemStatus::Healthy => "healthy",
     }
 }
 
@@ -670,10 +687,28 @@ fn local_vault_dir(ctx: &Ctx) -> Result<PathBuf> {
 }
 
 fn device_name_default() -> String {
-    ["COMPUTERNAME", "HOSTNAME", "HOST"]
-        .iter()
-        .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
-        .unwrap_or_else(|| "device".into())
+    let name = gethostname::gethostname()
+        .to_string_lossy()
+        .trim()
+        .to_owned();
+    if name.is_empty() {
+        "device".into()
+    } else {
+        name
+    }
+}
+
+/// Read a secret from the first line of stdin.
+fn stdin_secret() -> Result<SecretValue> {
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .map_err(WardenError::Io)?;
+    let line = line.trim_end_matches(['\r', '\n']);
+    if line.is_empty() {
+        return Err(cfg_err("empty password on stdin"));
+    }
+    Ok(SecretValue::new(line))
 }
 
 fn ensure_cli_token(paths: &Paths) -> Result<()> {
@@ -701,16 +736,18 @@ fn emergency_kit(dir: &Path, device: &str, sk: &SecretKey) -> String {
 }
 
 /// Show the coffee pledge and record the signature. Nothing is created before it is signed.
-fn sign_pledge_flow(ctx: &Ctx, flag: bool) -> Result<()> {
+fn sign_pledge_flow(ctx: &Ctx, flag: bool, quiet: bool) -> Result<()> {
     let store = CoffeeStore::new(ctx.paths.settings_file());
     let mut st = store.load().map_err(|e| cfg_err(e.to_string()))?;
     if warden_coffee::is_pledged(&st) {
         return Ok(());
     }
-    println!("The coffee pledge\n-----------------");
-    println!("{}", warden_coffee::PLEDGE_TEXT);
-    println!("Price: {}", warden_coffee::PRICE_LABEL);
-    println!("{}\n", warden_coffee::HONEST_LINE);
+    if !quiet {
+        println!("The coffee pledge\n-----------------");
+        println!("{}", warden_coffee::PLEDGE_TEXT);
+        println!("Price: {}", warden_coffee::PRICE_LABEL);
+        println!("{}\n", warden_coffee::HONEST_LINE);
+    }
     if !flag {
         if !interactive() {
             return Err(cfg_err(
@@ -748,9 +785,13 @@ async fn init(ctx: &Ctx, a: InitArgs) -> Code {
     if ctx.fast_kdf && !fast {
         eprintln!("warning: --insecure-fast-kdf is ignored in release builds");
     }
-    sign_pledge_flow(ctx, a.pledge)?;
+    sign_pledge_flow(ctx, a.pledge, a.json)?;
     let device = a.device_name.unwrap_or_else(device_name_default);
-    let password = prompt_secret("WARDEN_PASSWORD", "Vault password: ", !a.join)?;
+    let password = if a.password_stdin {
+        stdin_secret()?
+    } else {
+        prompt_secret("WARDEN_PASSWORD", "Vault password: ", !a.join)?
+    };
     if !fast && password.expose().chars().count() < 8 {
         return Err(cfg_err("the password needs at least 8 characters"));
     }
@@ -780,24 +821,40 @@ async fn init(ctx: &Ctx, a: InitArgs) -> Code {
         store::set_vault_dir(&ctx.paths, &dir)?;
     }
     ensure_cli_token(&ctx.paths)?;
-    print!("{}", emergency_kit(&dir, &device, &sk));
-    println!("Coffee ticket: {ticket}");
-    match connect(&ctx.paths).await {
+    if !a.json {
+        print!("{}", emergency_kit(&dir, &device, &sk));
+        println!("Coffee ticket: {ticket}");
+    }
+    let outcome: std::result::Result<(), String> = match connect(&ctx.paths).await {
         Ok(mut c) => {
             let req = Request::Unlock {
                 password: password.clone(),
                 secret_key: SecretValue::new(sk.to_string()),
             };
-            match call(&mut c, req).await {
-                Ok(_) => {
-                    println!("\n\u{2713} this device is registered and the daemon is unlocked")
-                }
-                Err(e) => println!("\nThis device is registered. The daemon did not unlock: {e}"),
-            }
+            call(&mut c, req)
+                .await
+                .map(|_| ())
+                .map_err(|e| format!("The daemon did not unlock: {e}"))
         }
-        Err(_) => println!(
-            "\nThis device is registered. Start the daemon with `awd daemon` (or `awd service install`), then run `awd unlock`."
+        Err(_) => Err(
+            "Start the daemon with `awd daemon` (or `awd service install`), then run `awd unlock`."
+                .into(),
         ),
+    };
+    if a.json {
+        let out = serde_json::json!({
+            "secret_key": sk.to_string(),
+            "vault": dir.display().to_string(),
+            "device": device,
+            "ticket": ticket,
+            "unlocked": outcome.is_ok(),
+        });
+        println!("{out}");
+    } else {
+        match outcome {
+            Ok(()) => println!("\n\u{2713} this device is registered and the daemon is unlocked"),
+            Err(m) => println!("\nThis device is registered. {m}"),
+        }
     }
     Ok(0)
 }
@@ -1311,6 +1368,32 @@ async fn inbox(ctx: &Ctx, cmd: Option<InboxCmd>) -> Code {
 }
 
 async fn pair(ctx: &Ctx, a: PairArgs) -> Code {
+    let mut c = connect(&ctx.paths).await?;
+    if a.list {
+        let Response::Clients { clients } = call(&mut c, Request::ListClients).await? else {
+            return Err(unexpected());
+        };
+        let mut rows = vec![
+            ["ID", "NAME", "CAPABILITIES", "PAIRED"]
+                .map(String::from)
+                .to_vec(),
+        ];
+        for k in clients {
+            rows.push(vec![
+                k.id,
+                k.name,
+                k.capabilities
+                    .iter()
+                    .map(|c| format!("{c:?}").to_lowercase())
+                    .collect::<Vec<_>>()
+                    .join(","),
+                k.paired_at.date_naive().to_string(),
+            ]);
+        }
+        print!("{}", table(&rows));
+        return Ok(0);
+    }
+    let name = a.name.clone().unwrap_or_default();
     let mut caps: Vec<Capability> = a
         .caps
         .iter()
@@ -1321,11 +1404,10 @@ async fn pair(ctx: &Ctx, a: PairArgs) -> Code {
         })
         .collect();
     caps.dedup();
-    let mut c = connect(&ctx.paths).await?;
     let resp = call(
         &mut c,
         Request::Pair {
-            name: a.name.clone(),
+            name: name.clone(),
             capabilities: caps,
         },
     )
@@ -1333,7 +1415,7 @@ async fn pair(ctx: &Ctx, a: PairArgs) -> Code {
     let Response::Paired { token, .. } = resp else {
         return Err(unexpected());
     };
-    println!("Pairing token for `{}` (shown once):", a.name);
+    println!("Pairing token for `{name}` (shown once):");
     println!("{}", token.expose());
     if a.save {
         let t = warden_core::ClientToken::parse(token.expose())?;
@@ -1342,6 +1424,36 @@ async fn pair(ctx: &Ctx, a: PairArgs) -> Code {
     } else {
         println!("Give it to the client as the env var WARDEN_TOKEN, or pair again with --save.");
     }
+    Ok(0)
+}
+
+async fn unpair(ctx: &Ctx, id: &str) -> Code {
+    let mut c = connect(&ctx.paths).await?;
+    call(&mut c, Request::Unpair { id: id.to_owned() }).await?;
+    println!("\u{2713} client unpaired");
+    Ok(0)
+}
+
+async fn devices(ctx: &Ctx) -> Code {
+    let mut c = connect(&ctx.paths).await?;
+    let Response::Devices { devices } = call(&mut c, Request::ListDevices).await? else {
+        return Err(unexpected());
+    };
+    let mut rows = vec![
+        ["ID", "NAME", "ROTATES", "LAST SEEN"]
+            .map(String::from)
+            .to_vec(),
+    ];
+    for d in devices {
+        rows.push(vec![
+            d.id.to_string(),
+            d.name,
+            d.is_rotator_for.to_string(),
+            d.last_seen
+                .map_or("-".into(), |t| t.format("%Y-%m-%d %H:%M").to_string()),
+        ]);
+    }
+    print!("{}", table(&rows));
     Ok(0)
 }
 
@@ -1582,6 +1694,8 @@ mod tests {
             "rm",
             "inbox",
             "pair",
+            "unpair",
+            "devices",
             "audit",
             "exec",
             "coffee",

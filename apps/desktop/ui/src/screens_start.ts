@@ -129,7 +129,7 @@ export function unlock(root: HTMLElement, sample?: Kit): void {
 }
 
 export function init(root: HTMLElement): void {
-  const device = h("input", { value: "", placeholder: "this computer" });
+  const device = h("input", { value: "", placeholder: "default: the name of this computer" });
   const pw = h("input", { type: "password", autocomplete: "new-password", required: true, minlength: 8 });
   const again = h("input", { type: "password", autocomplete: "new-password", required: true });
   const err = h("div", { class: "err", role: "alert" });

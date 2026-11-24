@@ -1,5 +1,5 @@
 import { mockApp, mockCall } from "./mock.js";
-import type { AppState, Kit, McpClient } from "./types.js";
+import type { AppState, Device, Kit, McpClient } from "./types.js";
 
 type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
 type Listen = (event: string, cb: (e: { payload: unknown }) => void) => Promise<() => void>;
@@ -34,14 +34,17 @@ export async function call<T = Record<string, any>>(req: Record<string, unknown>
 }
 
 export const appState = (): Promise<AppState> => (isTauri ? invoke("app_state") : mockApp());
-export const signPledge = (): Promise<void> => (isTauri ? invoke("sign_pledge") : mockCall({ type: "sign_pledge" }).then(() => undefined));
+export const signPledge = (): Promise<void> => (isTauri ? invoke("sign_pledge") : mockCall({ type: "sign_pledge", user: "preview" }).then(() => undefined));
 export const initVault = (password: string, deviceName: string): Promise<Kit> =>
   isTauri ? invoke("init_vault", { password, deviceName }) : mockCall({ type: "init" }).then((r) => r["kit"] as Kit);
 export const startService = (): Promise<void> => (isTauri ? invoke("start_service") : Promise.resolve());
-export const listMcpClients = (): Promise<McpClient[]> =>
-  isTauri ? invoke("list_mcp_clients") : mockCall({ type: "mcp_clients" }).then((r) => r["clients"] as McpClient[]);
-export const unpairMcpClient = (id: string): Promise<void> =>
-  isTauri ? invoke("unpair_mcp_client", { id }) : mockCall({ type: "unpair", id }).then(() => undefined);
+/** Paired clients that are not Full (CLI and desktop manage their own tokens). */
+export const listMcpClients = async (): Promise<McpClient[]> =>
+  (await call<{ clients: McpClient[] }>({ type: "list_clients" })).clients.filter((c) => !c.capabilities.includes("full"));
+export const unpairMcpClient = async (id: string): Promise<void> => {
+  await call({ type: "unpair", id });
+};
+export const listDevices = async (): Promise<Device[]> => (await call<{ devices: Device[] }>({ type: "list_devices" })).devices;
 export const openUrl = (url: string): Promise<void> => {
   if (isTauri) return invoke("open_url", { url });
   window.open(url, "_blank", "noopener");

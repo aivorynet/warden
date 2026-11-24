@@ -1,6 +1,7 @@
 /** Token list, detail with policy editor, audit and inbox. */
 import { h, replace } from "./dom.js";
 import { call } from "./api.js";
+import { placePicker } from "./place.js";
 import {
   S, cta, btn, days, errText, eyebrow, field, fmtDate, fmtDateTime, providerLabel, PROVIDERS, relTime, shortId, simpleBar, slugify, stamp, stampOf, toast, topbar,
 } from "./view.js";
@@ -64,7 +65,7 @@ export async function tokens(root: HTMLElement): Promise<void> {
         h("span", { class: "side-head" }, "THIS WEEK"),
         h("div", { class: "stack" }, h("span", { class: "disp big" }, `${due} due`), h("span", { class: "small" }, `${items.length} tokens · ${places} places · ${failed.length} ${failed.length === 1 ? "needs" : "need"} you`)),
         ...failed.map((f) =>
-          h("div", { class: "alert" }, h("span", { class: "k" }, "NEEDS YOU"), h("span", { class: "b" }, f.name), h("span", { class: "m" }, S.overrides[f.id]?.message ?? "The last rotation failed. The new token is safe in the vault.")),
+          h("div", { class: "alert" }, h("span", { class: "k" }, "NEEDS YOU"), h("span", { class: "b" }, f.name), h("span", { class: "m" }, f.last_error ?? "The last rotation failed. The new token is safe in the vault.")),
         ),
         h("span", { class: "side-head gap" }, "DAEMON"),
         h("div", { class: "kv" }, h("span", {}, "Background rotation"), h("span", { class: "mono" }, S.app?.status?.locked ? "LOCKED" : "ON")),
@@ -128,15 +129,14 @@ export async function detail(root: HTMLElement, id: string): Promise<void> {
   };
   const parent = it.kind.type === "derived" ? list.find((s) => s.id === (it.kind as { parent: string }).parent)?.name : null;
   const defDays = Math.round((settings["default_interval"] as number) / DAY);
+  const picker = placePicker();
+  const placeBox = h("div", { class: "stack" }, h("span", { class: "label" }, "ADD A PLACE"), picker.el);
   const rotateBtn = cta("Rotate now", async () => {
     rotateBtn.disabled = true;
-    S.overrides[id] = { stamp: "ROTATING" };
     try {
       await call({ type: "rotate_now", item: id });
-      delete S.overrides[id];
       toast("ok", "ROTATED", `${it.name}: the new value is written.`);
     } catch (e) {
-      S.overrides[id] = { stamp: "FAILED", message: errText(e) };
       toast("bad", "ROTATION FAILED", `${it.name}: ${errText(e)}`);
     }
     await detail(root, id);
@@ -153,7 +153,7 @@ export async function detail(root: HTMLElement, id: string): Promise<void> {
         eyebrow(h("a", { href: "#tokens" }, "TOKENS"), ` · ${shortId(id)} · ${providerLabel(it.provider.kind).toUpperCase()} ${it.kind.type === "admin" ? "ADMIN" : "DERIVED"}`),
         h("div", { class: "titlerow" }, h("h1", { class: "disp sm" }, it.name), stamp(st.name)),
         h("p", { class: "lead small" }, parent ? `Derived from ${parent}. ` : "", `Name at provider: `, h("span", { class: "mono" }, `aivw_${it.slug}_${new Date().toISOString().slice(0, 10).replaceAll("-", "")}`)),
-        st.name === "FAILED" ? h("div", { class: "alert" }, h("span", { class: "k" }, "ROTATION FAILED"), h("span", { class: "m" }, S.overrides[id]?.message ?? "The new token is safe in the vault.")) : null,
+        st.name === "FAILED" ? h("div", { class: "alert" }, h("span", { class: "k" }, "ROTATION FAILED"), h("span", { class: "m" }, sum?.last_error ?? "The new token is safe in the vault.")) : null,
         h("div", { class: "bar" }),
         h("span", { class: "label" }, "PLACES"),
         h(
@@ -164,7 +164,18 @@ export async function detail(root: HTMLElement, id: string): Promise<void> {
             const v = sinkView(s);
             return h("div", { class: "row" }, h("span", { class: "kind" }, v.kind), h("span", { class: "grow" }, h("span", { class: "a" }, v.main), h("span", { class: "b" }, v.sub)), h("span", { class: "stamp sm" }, it.rotated_at ? "WRITTEN" : "PENDING"));
           }),
-          h("button", { class: "link", type: "button", disabled: true, title: "Changing places needs an update-item request in the daemon." }, "Add a place"),
+          placeBox,
+          btn("Add this place", async () => {
+            const sink = picker.read();
+            if (typeof sink === "string") return void toast("bad", "NOT ADDED", sink);
+            try {
+              await call({ type: "update_item", item: id, sinks: [...it.sinks, sink] });
+              toast("ok", "PLACE ADDED", `${it.name}: the next rotation writes to it.`);
+              await detail(root, id);
+            } catch (e) {
+              toast("bad", "NOT ADDED", errText(e));
+            }
+          }, "sm"),
         ),
         h("span", { class: "label" }, "HISTORY"),
         hist.length === 0

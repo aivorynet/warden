@@ -1,13 +1,12 @@
 /** Add wizard and settings. */
 import { h, replace } from "./dom.js";
-import { call, isTauri, listMcpClients, openUrl, unpairMcpClient } from "./api.js";
+import { call, isTauri, listDevices, listMcpClients, openUrl, unpairMcpClient } from "./api.js";
+import { placePicker, type PlaceType } from "./place.js";
 import { S, PROVIDERS, btn, cta, errText, eyebrow, field, fmtDate, providerLabel, simpleBar, slugify, toast, topbar } from "./view.js";
 import { opts, sinkView } from "./screens_tokens.js";
-import type { Coffee, McpClient, Settings, Sink, Summary } from "./types.js";
+import type { Coffee, Device, McpClient, Settings, Sink, Summary } from "./types.js";
 import { DAY } from "./types.js";
 
-type PlaceType = ".ENV" | "JSON" | "TOML" | "YAML" | "SSH FILE" | "ENV VARIABLE";
-const PLACE_TYPES: PlaceType[] = [".ENV", "JSON", "TOML", "YAML", "SSH FILE", "ENV VARIABLE"];
 const STEPS = ["THE PROVIDER", "THE TOKEN", "THE PLACES", "THE POLICY"];
 const TITLES = ["Which provider", "The admin token", "Where it goes", "How often"];
 const LEADS = [
@@ -38,11 +37,9 @@ export async function wizard(root: HTMLElement, startStep = 1): Promise<void> {
     auto: true, interval: "", lead: 3, hosts: "", ...(startStep > 1 ? sample() : {}),
   };
   const err = h("div", { class: "err", role: "alert" });
+  const picker = placePicker({ type: w.type, f: w.f });
   const draw = () => {
     err.textContent = "";
-    const set = (k: string) => (e: Event) => { w.f[k] = (e.target as HTMLInputElement).value; };
-    const val = (k: string) => w.f[k] ?? "";
-    const inp = (k: string, label: string, ph = "", cls = "") => field(label, h("input", { value: val(k), placeholder: ph, class: cls, spellcheck: false, oninput: set(k) }));
     const body = (): HTMLElement => {
       if (w.step === 1) {
         return h("div", { class: "chips", role: "radiogroup", "aria-label": "Provider" }, ...PROVIDERS.map((p) => h("button", { type: "button", role: "radio", "aria-checked": w.provider === p.kind, class: `chip${w.provider === p.kind ? " on" : ""}`, onclick: () => { w.provider = p.kind; draw(); } }, p.label.toUpperCase())));
@@ -58,20 +55,7 @@ export async function wizard(root: HTMLElement, startStep = 1): Promise<void> {
           field("PROVIDER CONFIG, JSON (OPTIONAL)", h("textarea", { placeholder: '{"base_url":"https://gitlab.example.org"}', spellcheck: false, value: w.config, oninput: (e: Event) => { w.config = (e.target as HTMLTextAreaElement).value; } })),
         );
       }
-      if (w.step === 3) {
-        const grid: HTMLElement[] = [];
-        switch (w.type) {
-          case ".ENV": grid.push(inp("path", "FILE", "C:\\project\\.env"), inp("key", "VARIABLE", "GITLAB_TOKEN")); break;
-          case "JSON": grid.push(inp("path", "FILE"), inp("pointer", "JSON POINTER", "/auth/token")); break;
-          case "TOML": case "YAML": grid.push(inp("path", "FILE"), inp("keypath", "KEY PATH", "runners.token")); break;
-          case "ENV VARIABLE": grid.push(inp("name", "VARIABLE NAME", "GITLAB_TOKEN")); break;
-          case "SSH FILE": {
-            const fm = h("select", { onchange: () => { w.f["format"] = fm.value; } }, ...["dotenv", "json", "toml", "yaml"].map((x) => h("option", { value: x, selected: (val("format") || "toml") === x }, x.toUpperCase())));
-            grid.push(inp("host", "HOST", "build-01.example.org"), inp("user", "USER", "deploy"), inp("remote", "REMOTE FILE", "/etc/runner/config.toml"), inp("key", "KEY IN FILE", "runners.token"), inp("ssh", "SSH KEY"), field("FILE FORMAT", fm), inp("known", "HOST KEYS (KNOWN_HOSTS)", "", "dashed"));
-          }
-        }
-        return h("div", {}, h("div", { class: "chips", role: "radiogroup", "aria-label": "Place type" }, ...PLACE_TYPES.map((t) => h("button", { type: "button", role: "radio", "aria-checked": w.type === t, class: `chip${w.type === t ? " on" : ""}`, onclick: () => { w.type = t; draw(); } }, t))), h("div", { class: "grid2" }, ...grid));
-      }
+      if (w.step === 3) return picker.el;
       return h(
         "div",
         { class: "grid2" },
@@ -83,31 +67,11 @@ export async function wizard(root: HTMLElement, startStep = 1): Promise<void> {
       );
     };
 
-    const readSink = (): Sink | string => {
-      const v = (k: string) => val(k).trim();
-      const need = (...ks: string[]) => ks.find((k) => !v(k));
-      const miss = (ks: string[]) => { const m = need(...ks); return m ? `Fill in the ${m} field.` : null; };
-      switch (w.type) {
-        case ".ENV": return miss(["path", "key"]) ?? { type: "dotenv", path: v("path"), key: v("key") };
-        case "JSON": return miss(["path", "pointer"]) ?? { type: "json", path: v("path"), pointer: v("pointer") };
-        case "TOML": return miss(["path", "keypath"]) ?? { type: "toml", path: v("path"), key_path: v("keypath").split(".") };
-        case "YAML": return miss(["path", "keypath"]) ?? { type: "yaml", path: v("path"), key_path: v("keypath").split(".") };
-        case "ENV VARIABLE": return miss(["name"]) ?? { type: "env_var", name: v("name") };
-        case "SSH FILE": {
-          const m = miss(["host", "user", "remote", "key", "ssh", "known"]);
-          if (m) return m;
-          const fmt = v("format") || "toml";
-          const format = fmt === "dotenv" ? { type: "dotenv", key: v("key") } : fmt === "json" ? { type: "json", pointer: v("key") } : { type: fmt, key_path: v("key").split(".") };
-          return { type: "ssh", host: v("host"), port: 22, user: v("user"), identity_file: v("ssh"), known_hosts: v("known"), remote_path: v("remote"), format };
-        }
-      }
-    };
-
     const addPlace = () => {
-      const s = readSink();
+      const s = picker.read();
       if (typeof s === "string") return void (err.textContent = s);
       w.sinks.push(s);
-      w.f = { ssh: w.f["ssh"] ?? "", known: w.f["known"] ?? "" };
+      picker.reset();
       draw();
     };
 
@@ -192,6 +156,7 @@ export async function settings(root: HTMLElement): Promise<void> {
   const coffee = (await call({ type: "coffee_status" })) as unknown as Coffee;
   S.coffee = coffee;
   const clients: McpClient[] = await listMcpClients().catch(() => []);
+  const devices: Device[] = await listDevices().catch(() => []);
   const save = async (patch: Partial<Settings>) => {
     Object.assign(cur, patch);
     try {
@@ -237,14 +202,18 @@ export async function settings(root: HTMLElement): Promise<void> {
         h("span", { class: "label" }, "SECURITY"),
         h("div", { class: "rows" }, row("Keychain cache", "Off: rotations wait until you unlock.", h("input", { type: "checkbox", class: "chk", checked: cur.keychain_cache, onchange: (e: Event) => void save({ keychain_cache: (e.target as HTMLInputElement).checked }) }))),
         h("span", { class: "label" }, "DEVICES"),
-        h("div", { class: "rows" }, row(`${S.app?.status ? S.app.status.device_id.slice(-8).toUpperCase() : "this device"} \u00B7 this device`, null, h("span", { class: "stamp sm accent" }, `ROTATOR \u00B7 ${S.app?.status?.item_count ?? 0}`))),
-        h("p", { class: "hint" }, "Other devices of the vault are not listed. The daemon has no request for them yet."),
+        h(
+          "div",
+          { class: "rows" },
+          ...(devices.length === 0 ? [h("div", { class: "empty" }, "No device is registered.")] : []),
+          ...devices.map((d) => row(`${d.name}${d.id === S.app?.status?.device_id ? " \u00B7 this device" : ""}`, d.last_seen ? `last change ${fmtDate(d.last_seen)}` : "no change yet", h("span", { class: `stamp sm${d.is_rotator_for > 0 ? " accent" : ""}` }, `ROTATOR \u00B7 ${d.is_rotator_for}`))),
+        ),
         h("span", { class: "label" }, "MCP CLIENTS"),
         h(
           "div",
           { class: "rows" },
           ...(clients.length === 0 ? [h("div", { class: "empty" }, "No MCP client is paired.")] : []),
-          ...clients.map((c) => row(`${c.name} \u00B7 paired ${fmtDate(c.created_at)}`, null, h("span", { class: "mono small" }, capsLabel(c.caps)), h("button", { class: "link danger", type: "button", onclick: async () => { if (!window.confirm(`Unpair ${c.name}?`)) return; try { await unpairMcpClient(c.id); reloadClients(); } catch (e) { toast("bad", "NOT UNPAIRED", errText(e)); } } }, "Unpair"))),
+          ...clients.map((c) => row(`${c.name} \u00B7 paired ${fmtDate(c.paired_at)}`, null, h("span", { class: "mono small" }, capsLabel(c.capabilities)), h("button", { class: "link danger", type: "button", onclick: async () => { if (!window.confirm(`Unpair ${c.name}?`)) return; try { await unpairMcpClient(c.id); reloadClients(); } catch (e) { toast("bad", "NOT UNPAIRED", errText(e)); } } }, "Unpair"))),
         ),
         h("div", { class: "grid2" }, field("PAIR A NEW CLIENT", pairName), field("ACCESS", pairCaps)),
         btn("Pair client", async () => {

@@ -49,8 +49,8 @@ async fn daemon_call(d: Shared<'_>, request: Value) -> Result<Value, String> {
 }
 
 #[tauri::command]
-fn sign_pledge(d: Shared<'_>) -> Result<(), String> {
-    d.sign_pledge()
+async fn sign_pledge(d: Shared<'_>) -> Result<(), String> {
+    d.sign_pledge().await
 }
 
 #[tauri::command]
@@ -65,16 +65,6 @@ async fn init_vault(
 #[tauri::command]
 async fn start_service(d: Shared<'_>) -> Result<(), String> {
     d.start_service().await
-}
-
-#[tauri::command]
-fn list_mcp_clients(d: Shared<'_>) -> Result<Value, String> {
-    d.list_mcp_clients()
-}
-
-#[tauri::command]
-fn unpair_mcp_client(d: Shared<'_>, id: String) -> Result<(), String> {
-    d.unpair_mcp_client(&id)
 }
 
 #[tauri::command]
@@ -139,8 +129,6 @@ fn main() {
             sign_pledge,
             init_vault,
             start_service,
-            list_mcp_clients,
-            unpair_mcp_client,
             open_url
         ])
         .on_window_event(|window, event| {

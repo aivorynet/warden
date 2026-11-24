@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use warden_core::ipc::{Capability, InboxEntry};
+use warden_core::ipc::{Capability, ClientInfo, InboxEntry};
 use warden_core::{ClientToken, InboxId, Result, SecretValue, Settings, WardenError};
 use warden_ipc::PairingStore;
 use warden_vault::fsutil::atomic_write;
@@ -134,6 +134,36 @@ impl PairingFile {
         });
         atomic_write(&self.path, &serde_json::to_vec_pretty(&doc)?, true)?;
         Ok(token)
+    }
+
+    /// List the paired clients. The id is the first 12 characters of the token hash.
+    pub fn list(&self) -> Result<Vec<ClientInfo>> {
+        Ok(self
+            .load()?
+            .clients
+            .into_iter()
+            .map(|c| ClientInfo {
+                id: c.hash.chars().take(12).collect(),
+                name: c.name,
+                capabilities: c.caps,
+                paired_at: c.created_at,
+            })
+            .collect())
+    }
+
+    /// Remove the client with this id (as `list` reports it). Return false when none matches.
+    pub fn remove(&self, id: &str) -> Result<bool> {
+        if id.len() < 8 {
+            return Err(WardenError::Config("client id too short".into()));
+        }
+        let mut doc = self.load()?;
+        let n = doc.clients.len();
+        doc.clients.retain(|c| !c.hash.starts_with(id));
+        if doc.clients.len() == n {
+            return Ok(false);
+        }
+        atomic_write(&self.path, &serde_json::to_vec_pretty(&doc)?, true)?;
+        Ok(true)
     }
 
     /// Capabilities of a token, or `None` when the token is unknown.
@@ -335,6 +365,12 @@ mod tests {
         assert!(!raw.contains(t.expose()));
         assert_eq!(f.find(&t), Some(vec![Capability::Full]));
         assert_eq!(f.find(&ClientToken::generate()), None);
+        let list = f.list().unwrap();
+        assert_eq!(list.len(), 1);
+        assert!(!f.remove("short").unwrap_or(false));
+        assert!(f.remove(&list[0].id).unwrap());
+        assert_eq!(f.find(&t), None);
+        assert!(!f.remove("0123456789ab").unwrap());
     }
 
     #[test]

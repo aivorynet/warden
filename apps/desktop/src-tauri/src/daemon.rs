@@ -5,6 +5,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use warden_core::ipc::Request;
 use warden_ipc::Client;
@@ -29,6 +30,11 @@ const ALLOWED: &[&str] = &[
     "coffee_status",
     "coffee_receipt",
     "audit_list",
+    "sign_pledge",
+    "list_clients",
+    "unpair",
+    "list_devices",
+    "update_item",
 ];
 
 /// The Emergency Kit data that `init` prints. The Secret Key is shown once.
@@ -94,47 +100,60 @@ impl Daemon {
         Err("daemon not reachable".into())
     }
 
-    pub fn sign_pledge(&self) -> Result<(), String> {
-        desktop::sign_pledge(&self.paths).map_err(|e| e.to_string())
+    /// Sign the coffee pledge in the daemon, in the name of the OS user.
+    pub async fn sign_pledge(&self) -> Result<(), String> {
+        let user = ["USERNAME", "USER"]
+            .iter()
+            .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
+            .unwrap_or_else(|| "unknown".into());
+        let resp = self
+            .call(serde_json::json!({ "type": "sign_pledge", "user": user }))
+            .await?;
+        if resp["type"] == "error" {
+            return Err(resp["message"].as_str().unwrap_or("rejected").to_owned());
+        }
+        Ok(())
     }
 
-    pub fn list_mcp_clients(&self) -> Result<Value, String> {
-        let list = desktop::list_mcp_clients(&self.paths).map_err(|e| e.to_string())?;
-        serde_json::to_value(list).map_err(|e| e.to_string())
-    }
-
-    pub fn unpair_mcp_client(&self, id: &str) -> Result<(), String> {
-        desktop::unpair_mcp_client(&self.paths, id).map_err(|e| e.to_string())
-    }
-
-    /// Create the vault with `aivory-warden init`. The password goes in the child env only.
+    /// Create the vault with `aivory-warden init`. The password goes to the child on stdin.
     pub async fn init_vault(&self, password: String, device_name: String) -> Result<Kit, String> {
         let mut cmd = cli_command();
-        cmd.args(["init", "--pledge"]);
+        cmd.args(["init", "--pledge", "--password-stdin", "--json"]);
         if !device_name.trim().is_empty() {
             cmd.args(["--device-name", device_name.trim()]);
         }
-        cmd.env("WARDEN_PASSWORD", password);
-        let out = cmd.output().await.map_err(|e| e.to_string())?;
+        cmd.stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(
+                    format!(
+                        "{password}
+"
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        let out = child.wait_with_output().await.map_err(|e| e.to_string())?;
         if !out.status.success() {
             let err = String::from_utf8_lossy(&out.stderr);
             return Err(err.lines().last().unwrap_or("init failed").to_owned());
         }
-        let text = String::from_utf8_lossy(&out.stdout);
-        let field = |label: &str| {
-            text.lines()
-                .find_map(|l| l.strip_prefix(label))
-                .map(|v| v.trim().to_owned())
-                .unwrap_or_default()
-        };
+        let v: Value = serde_json::from_slice(&out.stdout)
+            .map_err(|_| "init returned no readable result".to_owned())?;
+        let field = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
         let kit = Kit {
-            secret_key: field("Secret Key:"),
-            vault: field("Vault:"),
-            device: field("Device:"),
-            ticket: field("Coffee ticket:"),
+            secret_key: field("secret_key"),
+            vault: field("vault"),
+            device: field("device"),
+            ticket: field("ticket"),
         };
         if kit.secret_key.is_empty() {
-            return Err("init did not print a Secret Key".into());
+            return Err("init did not return a Secret Key".into());
         }
         *self.client.lock().await = None;
         Ok(kit)

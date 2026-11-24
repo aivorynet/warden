@@ -1,0 +1,12 @@
+# deploy config
+service:
+  name: svc   # name
+
+  auth:
+    # the token
+    token: "old"   # keep me
+    other: 1
+  list:
+    - token: untouched
+other:
+  token: untouched

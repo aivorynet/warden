@@ -1,0 +1,4 @@
+; ini style
+[a]
+token = new-token-123
+token = second

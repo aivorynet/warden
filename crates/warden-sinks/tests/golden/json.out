@@ -1,0 +1,12 @@
+{
+    "name": "svc",
+    "zeta": 1,
+    "auth": {
+        "token": "new-token-123",
+        "alpha": true
+    },
+    "list": [
+        1,
+        2
+    ]
+}

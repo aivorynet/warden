@@ -1,0 +1,4 @@
+; ini style
+[a]
+token = old-value
+token = second

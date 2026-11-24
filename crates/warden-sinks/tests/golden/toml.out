@@ -1,0 +1,10 @@
+# top comment
+title = "x"
+
+[auth]
+# the token
+token = "new-token-123"   # keep me
+retries = 3
+
+[other]
+k = "v"

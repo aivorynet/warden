@@ -1,0 +1,6 @@
+# service config
+export HOST=example.org
+
+# the token
+API_TOKEN="new-token-123" # rotated monthly
+OTHER=1

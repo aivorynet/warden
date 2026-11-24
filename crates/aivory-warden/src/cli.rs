@@ -714,6 +714,8 @@ fn stdin_secret() -> Result<SecretValue> {
 fn ensure_cli_token(paths: &Paths) -> Result<()> {
     let pairing = PairingFile::new(paths.pairing_file());
     if pairing.token_file_valid(&paths.cli_token()) {
+        // Fix the permissions of a file that an older version wrote.
+        let _ = warden_ipc::restrict_to_owner(&paths.cli_token());
         return Ok(());
     }
     let t = pairing.add("cli", &[Capability::Full])?;
@@ -1648,8 +1650,13 @@ async fn mcp(ctx: &Ctx) -> Code {
         None => store::read_token(&ctx.paths.mcp_token())
             .map_err(|_| cfg_err("no MCP token. Run `awd pair mcp --save`, or set WARDEN_TOKEN"))?,
     };
-    let client = Client::connect(ctx.paths.endpoint().as_deref(), Some(&token)).await?;
-    warden_mcp::serve_stdio(client).await?;
+    let endpoint = ctx.paths.endpoint();
+    let client = Client::connect(endpoint.as_deref(), Some(&token)).await?;
+    let reconnect = warden_mcp::Reconnect {
+        path: endpoint,
+        token,
+    };
+    warden_mcp::serve_stdio(client, Some(reconnect)).await?;
     Ok(0)
 }
 

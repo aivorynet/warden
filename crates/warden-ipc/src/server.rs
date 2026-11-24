@@ -3,13 +3,13 @@
 use crate::frame::{FrameError, read_msg, write_msg};
 use crate::os::{BoxedStream, Listener};
 use crate::proto::{ClientMsg, Hello, HelloReply, write_response};
-use crate::session::{EmptyStore, PAIRING_WINDOW, PairingMode, PairingStore, Session};
+use crate::session::{EmptyStore, PairingStore, Session};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use warden_core::ClientToken;
 use warden_core::Result;
-use warden_core::ipc::{Capability, Request, Response};
+use warden_core::ipc::{Request, Response};
 
 /// Time that a client has to send its first frame.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -25,14 +25,12 @@ pub trait Handler: Send + Sync {
 pub struct Server {
     listener: Listener,
     store: Arc<dyn PairingStore>,
-    pairing: PairingMode,
 }
 
 impl std::fmt::Debug for Server {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Server")
             .field("path", &self.listener.path())
-            .field("pairing", &self.pairing)
             .finish_non_exhaustive()
     }
 }
@@ -45,7 +43,6 @@ impl Server {
         Ok(Self {
             listener: Listener::bind(path)?,
             store: Arc::new(EmptyStore),
-            pairing: PairingMode::default(),
         })
     }
 
@@ -53,11 +50,6 @@ impl Server {
     pub fn with_pairing_store(mut self, store: Arc<dyn PairingStore>) -> Self {
         self.store = store;
         self
-    }
-
-    /// Handle of the pairing window. Clones share the same window.
-    pub fn pairing_mode(&self) -> PairingMode {
-        self.pairing.clone()
     }
 
     /// The socket path or pipe name.
@@ -73,7 +65,6 @@ impl Server {
                     let ctx = Ctx {
                         handler: Arc::clone(&handler),
                         store: Arc::clone(&self.store),
-                        pairing: self.pairing.clone(),
                     };
                     tokio::spawn(connection(stream, ctx));
                 }
@@ -92,7 +83,6 @@ impl Server {
 struct Ctx {
     handler: Arc<dyn Handler>,
     store: Arc<dyn PairingStore>,
-    pairing: PairingMode,
 }
 
 fn error(code: &str, message: &str) -> Response {
@@ -115,12 +105,11 @@ async fn handshake(stream: &mut BoxedStream, ctx: &Ctx) -> Option<Session> {
             };
             caps.map(Session::paired)
         }
-        None => ctx.pairing.is_active().then(Session::bootstrap),
+        None => None,
     };
     let reply = match &session {
         Some(s) => HelloReply::Accepted {
             capabilities: s.capabilities().to_vec(),
-            bootstrap: s.is_bootstrap(),
         },
         None => HelloReply::Refused {
             message: "client is not paired".into(),
@@ -155,30 +144,23 @@ async fn connection(mut stream: BoxedStream, ctx: Ctx) {
             Err(_) => return,
         };
         let resp = match msg {
-            ClientMsg::SetPairingMode { enabled } => {
-                if session.capabilities().contains(&Capability::Full) {
-                    if enabled {
-                        ctx.pairing.enable(PAIRING_WINDOW);
-                    } else {
-                        ctx.pairing.disable();
-                    }
-                    Response::Ok
-                } else {
-                    error("forbidden", "capability does not allow this request")
-                }
-            }
             ClientMsg::Request(req) if !session.allows(&req) => {
                 error("forbidden", "capability does not allow this request")
             }
-            ClientMsg::Request(req) => {
-                if session.is_bootstrap() && !ctx.pairing.take() {
-                    error("forbidden", "pairing window is closed")
-                } else {
-                    ctx.handler.handle(&session, *req).await
-                }
-            }
+            ClientMsg::Request(req) => ctx.handler.handle(&session, *req).await,
         };
-        if write_response(&mut stream, &resp).await.is_err() {
+        if let Err(e) = write_response(&mut stream, &resp).await {
+            // A response above the frame limit must not kill the session: send an error.
+            if matches!(e, FrameError::TooLarge(_))
+                && write_response(
+                    &mut stream,
+                    &error("response_too_large", "response too large"),
+                )
+                .await
+                .is_ok()
+            {
+                continue;
+            }
             return;
         }
     }

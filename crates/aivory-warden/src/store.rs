@@ -77,9 +77,11 @@ pub fn read_token(path: &Path) -> Result<String> {
         .to_owned())
 }
 
-/// Write a token file (mode 0600 on Unix).
+/// Write a token file. The file is owner-only: mode 0600 on Unix, an owner-only DACL on Windows.
 pub fn write_token(path: &Path, token: &ClientToken) -> Result<()> {
     atomic_write(path, token.expose().as_bytes(), true)?;
+    warden_ipc::restrict_to_owner(path)
+        .map_err(|e| WardenError::Config(format!("cannot restrict the token file: {e}")))?;
     Ok(())
 }
 
@@ -122,8 +124,34 @@ impl PairingFile {
         }
     }
 
+    /// Run `f` while this process and no other process changes the file.
+    ///
+    /// An in-process mutex and an exclusive lock on `<file>.lock` cover load and save.
+    fn with_lock<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
+        static IN_PROCESS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = IN_PROCESS.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(dir) = self.path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let mut lock_name = self.path.clone().into_os_string();
+        lock_name.push(".lock");
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(PathBuf::from(lock_name))?;
+        lock.lock()?;
+        let r = f();
+        let _ = lock.unlock();
+        r
+    }
+
     /// Create a token for a new client and store its hash.
     pub fn add(&self, name: &str, caps: &[Capability]) -> Result<ClientToken> {
+        self.with_lock(|| self.add_locked(name, caps))
+    }
+
+    fn add_locked(&self, name: &str, caps: &[Capability]) -> Result<ClientToken> {
         let token = ClientToken::generate();
         let mut doc = self.load()?;
         doc.clients.push(PairedClient {
@@ -156,6 +184,10 @@ impl PairingFile {
         if id.len() < 8 {
             return Err(WardenError::Config("client id too short".into()));
         }
+        self.with_lock(|| self.remove_locked(id))
+    }
+
+    fn remove_locked(&self, id: &str) -> Result<bool> {
         let mut doc = self.load()?;
         let n = doc.clients.len();
         doc.clients.retain(|c| !c.hash.starts_with(id));
@@ -371,6 +403,48 @@ mod tests {
         assert!(f.remove(&list[0].id).unwrap());
         assert_eq!(f.find(&t), None);
         assert!(!f.remove("0123456789ab").unwrap());
+    }
+
+    #[test]
+    fn concurrent_pairing_loses_no_token() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("p.json");
+        let handles: Vec<_> = (0..8)
+            .map(|n| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    // Each thread has its own handle, as the CLI and the daemon have.
+                    let f = PairingFile::new(path);
+                    (0..5)
+                        .map(|i| f.add(&format!("c{n}-{i}"), &[Capability::McpUse]).unwrap())
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        let tokens: Vec<_> = handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap())
+            .collect();
+        let f = PairingFile::new(path);
+        assert_eq!(f.list().unwrap().len(), 40);
+        assert!(tokens.iter().all(|t| f.find(t).is_some()));
+    }
+
+    #[test]
+    fn token_file_is_owner_only() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("cli.token");
+        let t = ClientToken::generate();
+        write_token(&p, &t).unwrap();
+        assert_eq!(read_token(&p).unwrap(), t.expose());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&p).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
     }
 
     #[test]

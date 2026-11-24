@@ -128,3 +128,8 @@ pub(crate) async fn connect(path: Option<&Path>) -> io::Result<BoxedStream> {
     peer_is_me(&stream)?;
     Ok(Box::new(stream))
 }
+
+/// Set the mode of the file at `path` to 0600.
+pub(crate) fn restrict_to_owner(path: &Path) -> io::Result<()> {
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+}

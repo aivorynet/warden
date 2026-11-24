@@ -15,7 +15,13 @@ use warden_core::{McpPolicy, Result, SecretValue, WardenError};
 /// Maximum request body in bytes.
 pub const MAX_REQUEST_BODY: usize = 1024 * 1024;
 /// Maximum response body in bytes. The proxy truncates a longer body.
-pub const MAX_RESPONSE_BODY: usize = 2 * 1024 * 1024;
+///
+/// The IPC frame limit is 1 MiB and the JSON form of the body can be larger than the body.
+/// The proxy also cuts the body at [`MAX_RESPONSE_BODY_JSON`] bytes of JSON-escaped text.
+pub const MAX_RESPONSE_BODY: usize = 512 * 1024;
+/// Maximum size of the JSON-escaped response body in bytes. It leaves room for the headers
+/// inside one 1 MiB IPC frame.
+pub const MAX_RESPONSE_BODY_JSON: usize = 768 * 1024;
 /// Time limit for the whole request.
 pub const TIMEOUT: Duration = Duration::from_secs(30);
 /// Text that replaces a secret in a response.
@@ -295,10 +301,90 @@ pub(crate) fn redaction_forms(values: &[&str]) -> Vec<String> {
         forms.push(hex::encode_upper(b));
         forms.push(url::form_urlencoded::byte_serialize(b).collect());
         forms.push(percent_encode_all(b));
+        // JSON escapes: `\/`, and the full JSON string escape (quotes, backslashes, controls).
+        forms.push(v.replace('/', r"\/"));
+        if let Ok(j) = serde_json::to_string(v) {
+            forms.push(j[1..j.len() - 1].to_owned());
+        }
+        forms.push(html_escape(v, false));
+        forms.push(html_escape(v, true));
+        // Base64 of the secret inside a longer base64 stream. The secret starts at byte offset
+        // 0, 1 or 2 of a 3-byte group. Only whole groups of the secret encode the same way
+        // whatever bytes surround it.
+        for skip in 0..3usize {
+            let whole = b.len().saturating_sub(skip) / 3 * 3;
+            if whole >= 6 {
+                let part = &b[skip..skip + whole];
+                forms.push(STANDARD.encode(part));
+                forms.push(URL_SAFE.encode(part));
+            }
+        }
     }
+    // Every window of 16 or more characters of the secret itself.
+    let mut windows: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for v in values.iter().filter(|v| !v.is_empty()) {
+        let idx: Vec<usize> = v
+            .char_indices()
+            .map(|(i, _)| i)
+            .chain(std::iter::once(v.len()))
+            .collect();
+        let n = idx.len() - 1;
+        if n > MIN_WINDOW {
+            for start in 0..=(n - MIN_WINDOW).min(MAX_WINDOWS) {
+                windows.insert(v[idx[start]..idx[start + MIN_WINDOW]].to_owned());
+            }
+        }
+    }
+    forms.extend(windows);
     forms.sort_by_key(|f| std::cmp::Reverse(f.len()));
     forms.dedup();
     forms
+}
+
+/// Shortest part of a secret that the proxy redacts on its own.
+const MIN_WINDOW: usize = 16;
+/// Upper bound of the windows per secret.
+const MAX_WINDOWS: usize = 1024;
+
+/// HTML-escape `v`. `numeric` writes `&#NN;` for every ASCII punctuation character.
+fn html_escape(v: &str, numeric: bool) -> String {
+    let mut s = String::new();
+    for c in v.chars() {
+        match c {
+            '&' if !numeric => s.push_str("&amp;"),
+            '<' if !numeric => s.push_str("&lt;"),
+            '>' if !numeric => s.push_str("&gt;"),
+            '"' if !numeric => s.push_str("&quot;"),
+            '\'' if !numeric => s.push_str("&#39;"),
+            '/' if !numeric => s.push_str("&#x2F;"),
+            c if numeric && c.is_ascii_punctuation() => s.push_str(&format!("&#{};", c as u32)),
+            c => s.push(c),
+        }
+    }
+    s
+}
+
+/// Cut `text` so that its JSON-escaped form has at most `max` bytes. Return true when it cut.
+fn truncate_json(text: &mut String, max: usize) -> bool {
+    let mut used = 0usize;
+    for (i, c) in text.char_indices() {
+        used += match c {
+            '"' | '\\' => 2,
+            c if (c as u32) < 0x20 => {
+                if matches!(c as u32, 8 | 9 | 10 | 12 | 13) {
+                    2
+                } else {
+                    6
+                }
+            }
+            c => c.len_utf8(),
+        };
+        if used > max {
+            text.truncate(i);
+            return true;
+        }
+    }
+    false
 }
 
 fn percent_encode_all(b: &[u8]) -> String {
@@ -381,6 +467,9 @@ pub(crate) async fn send(p: Prepared, forms: &[String]) -> Result<HttpResult> {
             cut -= 1;
         }
         text.truncate(cut);
+        truncated = true;
+    }
+    if truncate_json(&mut text, MAX_RESPONSE_BODY_JSON) {
         truncated = true;
     }
     Ok(HttpResult {
@@ -569,6 +658,56 @@ mod tests {
             let out = redact(&format!("a {e} b"), &forms);
             assert_eq!(out, format!("a {REDACTED} b"));
         }
+    }
+
+    #[test]
+    fn redacts_json_html_and_offset_base64_forms() {
+        let forms = redaction_forms(&[SECRET]);
+        let b = SECRET.as_bytes();
+        let echoes = [
+            SECRET.replace('/', r"\/"),
+            html_escape(SECRET, false),
+            html_escape(SECRET, true),
+            STANDARD.encode(&b[2..26]),
+            STANDARD.encode(&b[1..25]),
+            URL_SAFE.encode(&b[1..25]),
+        ];
+        for e in echoes {
+            let out = redact(&format!("a {e} b"), &forms);
+            assert!(!out.contains(&e), "form leaked: {e}");
+        }
+        // A base64 stream with the secret at offset 1: the middle part is still covered.
+        let stream = STANDARD.encode(format!("x{SECRET}y"));
+        let out = redact(&stream, &forms);
+        assert!(out.contains(REDACTED), "offset base64 leaked: {stream}");
+    }
+
+    #[test]
+    fn redacts_a_window_of_the_secret() {
+        let forms = redaction_forms(&[SECRET]);
+        let part = &SECRET[3..21]; // 18 characters
+        let out = redact(&format!("x {part} y"), &forms);
+        assert!(!out.contains(part));
+        assert!(out.contains(REDACTED));
+        // Text without 16 matching characters stays.
+        let ok = &SECRET[3..10];
+        assert_eq!(redact(&format!("x {ok} y"), &forms), format!("x {ok} y"));
+    }
+
+    #[test]
+    fn json_escaped_body_fits_one_frame() {
+        // Control characters grow six times in JSON.
+        let mut t = char::from(1).to_string().repeat(MAX_RESPONSE_BODY);
+        assert!(truncate_json(&mut t, MAX_RESPONSE_BODY_JSON));
+        let r = HttpResult {
+            status: 200,
+            headers: BTreeMap::new(),
+            body: t,
+            truncated: true,
+        };
+        let json = serde_json::to_string(&r.body).unwrap();
+        assert!(json.len() <= MAX_RESPONSE_BODY_JSON + 2);
+        const { assert!(MAX_RESPONSE_BODY_JSON < 1024 * 1024) };
     }
 
     /// Serve one plain-HTTP answer on loopback. Returns the port.

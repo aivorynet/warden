@@ -9,4 +9,4 @@
 pub mod proxy;
 mod server;
 
-pub use server::{WardenMcp, serve_io, serve_stdio};
+pub use server::{Reconnect, WardenMcp, serve_io, serve_stdio, serve_with};

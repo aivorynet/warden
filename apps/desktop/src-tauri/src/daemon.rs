@@ -80,18 +80,27 @@ impl Daemon {
         }
         for attempt in 0..2 {
             let parsed: Request = serde_json::from_value(req.clone()).map_err(|e| e.to_string())?;
-            let mut guard = self.client.lock().await;
-            if guard.is_none() {
-                *guard = Some(self.connect().await?);
-            }
-            let Some(client) = guard.as_mut() else {
-                return Err("daemon not reachable".into());
+            // Take the connection out of the slot. The lock is free during the call, so a slow
+            // answer does not block another request. A parallel request opens its own connection.
+            let cached = self.client.lock().await.take();
+            let reused = cached.is_some();
+            let mut client = match cached {
+                Some(c) => c,
+                None => self.connect().await?,
             };
             match client.call(parsed).await {
-                Ok(resp) => return serde_json::to_value(&resp).map_err(|e| e.to_string()),
+                Ok(resp) => {
+                    if !client.is_broken() {
+                        let mut slot = self.client.lock().await;
+                        if slot.is_none() {
+                            *slot = Some(client);
+                        }
+                    }
+                    return serde_json::to_value(&resp).map_err(|e| e.to_string());
+                }
                 Err(e) => {
-                    *guard = None;
-                    if attempt == 1 {
+                    // Only a stale cached connection earns a second try.
+                    if !reused || attempt == 1 {
                         return Err(e.to_string());
                     }
                 }

@@ -12,9 +12,9 @@ pub(crate) type BoxedStream = Box<dyn AsyncStream>;
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
-pub(crate) use unix::{Listener, connect};
+pub(crate) use unix::{Listener, connect, restrict_to_owner};
 
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub(crate) use windows::{Listener, connect};
+pub(crate) use windows::{Listener, connect, restrict_to_owner};

@@ -43,7 +43,7 @@ The daemon listens on a local endpoint. There is no network port and no HTTP.
 
 - Unix: a socket in a directory with mode 0700. The server checks the peer UID.
 - Windows: a named pipe `\\.\pipe\aivory-warden-<user-sid>`. It rejects remote clients, uses an owner-only DACL, and checks the client SID.
-- A new connection can send only `Pair` until it presents a paired token.
+- A connection without a paired token is refused. There is no pairing window. A `full` session (CLI or desktop app) pairs a new client.
 - Each client has a paired token (`aivw_<base62>_<crc32>`, so secret scanners find a leak) with a capability set:
   - `full`: CLI and desktop app.
   - `mcp`: use secrets through the proxy, read metadata, request a rotation.
@@ -60,18 +60,23 @@ See [crates/warden-mcp/README.md](../crates/warden-mcp/README.md) for the full l
 - `http_request` puts the secret in one header that the vault defines. The agent cannot set `Authorization`, `Cookie`, `Proxy-Authorization` or the secret header. The URL, query and body cannot hold the placeholder.
 - HTTPS on port 443 only. The host must be in the allowlist of that secret.
 - The proxy resolves the host, refuses private, loopback, link-local, CGNAT, multicast and unspecified addresses, and connects to the address it checked. It follows no redirects.
-- Limits: 1 MiB request body, 2 MiB response body, 30 s.
-- The proxy replaces the secret in the response body and headers with `[REDACTED:aivw]`. It also covers the base64, base64url, hex and URL-encoded forms.
+- Limits: 1 MiB request body, 512 KiB response body (the proxy also cuts it so that its JSON form fits one 1 MiB IPC frame), 30 s.
+- The proxy replaces the secret in the response body and headers with `[REDACTED:aivw]`. It also covers the base64 (also inside a longer stream), base64url, hex, URL-encoded, JSON-escaped and HTML-escaped forms, and every run of 16 or more characters of the secret.
 - `request_rotation` allows 1 request per item per hour. Some items need confirmation in the desktop app.
-- `set_policy` needs `mcp-admin`. Turning rotation off needs confirmation in the desktop app.
+- `set_policy` needs `mcp-admin`. Turning rotation off, a longer interval (or one above 365 days) and a lead time of 0 need confirmation in the desktop app.
 - `run_with_secret` is off by default and needs an opt-in for each secret.
 
 ## Edge extension
 
 - It captures only on a user click and has no host permissions (`activeTab` only).
-- The origin comes from the browser tab, not from page content.
+- The origin comes from the browser, not from page content. For a selection in an iframe it is the frame URL.
 - The value goes only to the native host `net.aivory.warden`. The host manifest lists one allowed origin, the pinned extension id.
 - Captures land in a pending inbox. You accept or reject each one in the app or with `awd inbox`.
+
+## What we do not promise
+
+- Any process that runs as your user can read `cli.token` and so act as a `full` client. This is a design limit: the CLI needs the token without a prompt. The file is owner-only (mode 0600 on Unix, an owner-only DACL on Windows). That stops other users and not your own processes.
+- Any process that runs as your user can also connect to the daemon endpoint. The token, not the endpoint, is the only barrier.
 
 ## Threat model
 

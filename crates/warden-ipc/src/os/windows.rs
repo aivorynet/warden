@@ -187,6 +187,66 @@ fn create_instance(name: &str, sid: &str, first: bool) -> io::Result<NamedPipeSe
     res
 }
 
+/// Replace the DACL of the file at `path` with a protected, owner-only DACL.
+pub(crate) fn restrict_to_owner(path: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Security::Authorization::{SE_FILE_OBJECT, SetNamedSecurityInfoW};
+    use windows_sys::Win32::Security::{
+        DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, PROTECTED_DACL_SECURITY_INFORMATION,
+    };
+    let sddl: Vec<u16> = format!("D:P(A;;FA;;;{})", my_sid()?)
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let wpath: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    // SAFETY: `sddl` is NUL-terminated and outlives the call; `sd` is a valid out pointer.
+    if unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &mut sd,
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let mut present = 0i32;
+    let mut defaulted = 0i32;
+    let mut dacl: *mut windows_sys::Win32::Security::ACL = std::ptr::null_mut();
+    // SAFETY: `sd` is a valid descriptor; the out pointers are valid.
+    let got = unsafe { GetSecurityDescriptorDacl(sd, &mut present, &mut dacl, &mut defaulted) };
+    let res = if got == 0 || present == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        // SAFETY: `wpath` is NUL-terminated; `dacl` points into `sd`, which is alive.
+        let rc = unsafe {
+            SetNamedSecurityInfoW(
+                wpath.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                dacl,
+                std::ptr::null_mut(),
+            )
+        };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::from_raw_os_error(rc as i32))
+        }
+    };
+    // SAFETY: `sd` was allocated by the conversion call and is not used after this.
+    unsafe { LocalFree(sd.cast()) };
+    res
+}
+
 /// Listening pipe. It always keeps one unconnected instance ready.
 #[derive(Debug)]
 pub(crate) struct Listener {

@@ -23,6 +23,17 @@ export type HostReply =
   | { type: "inbox"; inbox: InboxEntry[] }
   | { type: "error"; code: string; message: string };
 
+/**
+ * Pick the URL whose origin owns a context-menu selection. A selection inside an iframe belongs
+ * to the frame, so `frameUrl` wins over the URL of the top-level tab.
+ */
+export function selectionUrl(
+  info: { frameUrl?: string; pageUrl?: string },
+  tab: { url?: string } | undefined,
+): string | undefined {
+  return info.frameUrl || tab?.url || info.pageUrl;
+}
+
 /** Return the origin of a browser-provided URL, or null for a page that we must not scan. */
 export function originOf(url: string | undefined): string | null {
   if (!url) return null;

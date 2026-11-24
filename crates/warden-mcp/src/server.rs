@@ -64,10 +64,28 @@ pub struct SetPolicyArgs {
     pub lead_days: Option<u32>,
 }
 
+/// How to open a new daemon connection after the old one broke.
+#[derive(Clone)]
+pub struct Reconnect {
+    /// Endpoint path, or `None` for the per-user default.
+    pub path: Option<std::path::PathBuf>,
+    /// The `aivw_` client token.
+    pub token: String,
+}
+
+impl std::fmt::Debug for Reconnect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Reconnect")
+            .field("path", &self.path)
+            .finish_non_exhaustive()
+    }
+}
+
 /// The MCP server state. One daemon connection, shared by all tool calls.
 #[derive(Debug, Clone)]
 pub struct WardenMcp {
     client: Arc<Mutex<Client>>,
+    reconnect: Option<Reconnect>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -115,13 +133,51 @@ impl WardenMcp {
     pub fn new(client: Client) -> Self {
         Self {
             client: Arc::new(Mutex::new(client)),
+            reconnect: None,
             tool_router: Self::tool_router(),
         }
     }
 
+    /// Let the server open a new daemon connection after the old one broke.
+    pub fn with_reconnect(mut self, reconnect: Reconnect) -> Self {
+        self.reconnect = Some(reconnect);
+        self
+    }
+
+    async fn reconnect(&self, c: &mut Client) -> Result<(), WardenError> {
+        let Some(r) = &self.reconnect else {
+            return Err(WardenError::Ipc("no reconnect configured".into()));
+        };
+        *c = Client::connect(r.path.as_deref(), Some(&r.token)).await?;
+        Ok(())
+    }
+
     async fn call(&self, req: Request) -> Result<Response, String> {
         let mut c = self.client.lock().await;
-        c.call(req).await.map_err(|e| match e {
+        // A broken session fails every call. Open a new one before the request goes out.
+        if c.is_broken() && self.reconnect.is_some() {
+            self.reconnect(&mut c)
+                .await
+                .map_err(|e| format!("daemon connection failed: {e}"))?;
+        }
+        // Only a read may run twice, so only a read is repeated after a failure.
+        let retry = match &req {
+            Request::ListItems => Some(Request::ListItems),
+            Request::GetItem { item } => Some(Request::GetItem { item: *item }),
+            Request::Status => Some(Request::Status),
+            _ => None,
+        };
+        let first = c.call(req).await;
+        let result = match (first, retry) {
+            (Err(_), Some(again)) if c.is_broken() && self.reconnect.is_some() => {
+                match self.reconnect(&mut c).await {
+                    Ok(()) => c.call(again).await,
+                    Err(e) => Err(e),
+                }
+            }
+            (r, _) => r,
+        };
+        result.map_err(|e| match e {
             WardenError::Ipc(m) => format!("daemon connection failed: {m}"),
             other => format!("daemon call failed: {other}"),
         })
@@ -316,7 +372,16 @@ where
     R: AsyncRead + Send + Unpin + 'static,
     W: AsyncWrite + Send + Unpin + 'static,
 {
-    let running = WardenMcp::new(client)
+    serve_with(WardenMcp::new(client), reader, writer).await
+}
+
+/// Serve MCP with a prepared [`WardenMcp`] (for example one with a reconnect).
+pub async fn serve_with<R, W>(server: WardenMcp, reader: R, writer: W) -> warden_core::Result<()>
+where
+    R: AsyncRead + Send + Unpin + 'static,
+    W: AsyncWrite + Send + Unpin + 'static,
+{
+    let running = server
         .serve((reader, writer))
         .await
         .map_err(|e| WardenError::Ipc(format!("mcp start failed: {e}")))?;
@@ -331,7 +396,8 @@ where
 ///
 /// The function writes MCP frames to stdout and nothing else. It writes logs to stderr only
 /// when the `WARDEN_LOG` variable is set (`error`, `warn`, `info`, `debug` or `trace`).
-pub async fn serve_stdio(client: Client) -> warden_core::Result<()> {
+/// With `reconnect`, a broken daemon connection is replaced on the next tool call.
+pub async fn serve_stdio(client: Client, reconnect: Option<Reconnect>) -> warden_core::Result<()> {
     if let Ok(level) = std::env::var("WARDEN_LOG") {
         let level = level.parse().unwrap_or(tracing::Level::INFO);
         let _ = tracing_subscriber::fmt()
@@ -340,7 +406,11 @@ pub async fn serve_stdio(client: Client) -> warden_core::Result<()> {
             .with_ansi(false)
             .try_init();
     }
-    serve_io(client, tokio::io::stdin(), tokio::io::stdout()).await
+    let mut server = WardenMcp::new(client);
+    if let Some(r) = reconnect {
+        server = server.with_reconnect(r);
+    }
+    serve_with(server, tokio::io::stdin(), tokio::io::stdout()).await
 }
 
 #[cfg(test)]
@@ -416,6 +486,10 @@ mod tests {
                     }],
                 },
                 Request::GetItem { .. } => Response::Item(Box::new(self.item())),
+                Request::Status => {
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    Response::Ok
+                }
                 Request::RotateNow { .. } => Response::Error {
                     code: "needs_confirmation".into(),
                     message: "confirm in the desktop app".into(),
@@ -423,6 +497,52 @@ mod tests {
                 _ => Response::Ok,
             }
         }
+    }
+
+    #[tokio::test]
+    async fn reconnects_after_a_broken_session() {
+        let token = ClientToken::generate().expose().to_string();
+        #[cfg(unix)]
+        let (path, _dir) = {
+            let d = tempfile::tempdir().unwrap();
+            (d.path().join("w.sock"), d)
+        };
+        #[cfg(windows)]
+        let path = std::path::PathBuf::from(format!(
+            r"\\.\pipe\aivory-warden-mcp-reconnect-{}",
+            std::process::id()
+        ));
+        let server = Server::bind(Some(&path))
+            .unwrap()
+            .with_pairing_store(Arc::new(Store(token.clone())));
+        let handler = Arc::new(Fake {
+            id: ItemId::new(),
+            _secret: SECRET.into(),
+        });
+        tokio::spawn(server.serve(handler));
+
+        let mut client = Client::connect(Some(&path), Some(&token)).await.unwrap();
+        // A call that times out leaves the session broken.
+        assert!(
+            client
+                .call_with_timeout(Request::Status, Duration::from_millis(20))
+                .await
+                .is_err()
+        );
+        assert!(client.is_broken());
+        let mcp = WardenMcp::new(client).with_reconnect(Reconnect {
+            path: Some(path.clone()),
+            token: token.clone(),
+        });
+        let r = mcp.call(Request::ListItems).await.unwrap();
+        assert!(matches!(r, Response::Items { items } if items.len() == 1));
+        // Without a reconnect the same state stays an error.
+        let mut c2 = Client::connect(Some(&path), Some(&token)).await.unwrap();
+        let _ = c2
+            .call_with_timeout(Request::Status, Duration::from_millis(20))
+            .await;
+        let plain = WardenMcp::new(c2);
+        assert!(plain.call(Request::ListItems).await.is_err());
     }
 
     #[tokio::test]

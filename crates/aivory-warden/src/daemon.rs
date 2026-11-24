@@ -24,6 +24,29 @@ use warden_ipc::{Handler, Server, Session};
 use warden_mcp::proxy::{self, HttpCall};
 use warden_vault::{AuditAction, SecretKey, Vault, keychain};
 
+/// Longest rotation interval that a client without the `Full` capability may set.
+const MAX_PARTIAL_INTERVAL: Duration = Duration::from_secs(365 * 24 * 3600);
+
+/// Return the reason when `new` weakens `current` in a way that needs a `Full` session.
+fn weakens_policy(
+    current: &warden_core::RotationPolicy,
+    new: &warden_core::RotationPolicy,
+    default_interval: Duration,
+) -> Option<&'static str> {
+    if current.auto_rotate && !new.auto_rotate {
+        return Some("turning rotation off needs confirmation in the desktop app");
+    }
+    let old_interval = current.interval.unwrap_or(default_interval);
+    let new_interval = new.interval.unwrap_or(default_interval);
+    if new_interval > old_interval || new_interval > MAX_PARTIAL_INTERVAL {
+        return Some("a longer rotation interval needs confirmation in the desktop app");
+    }
+    if new.lead_time.is_zero() && !current.lead_time.is_zero() {
+        return Some("removing the lead time needs confirmation in the desktop app");
+    }
+    None
+}
+
 /// Everything that exists only while the vault is unlocked.
 #[derive(Clone)]
 struct Unlocked {
@@ -383,11 +406,11 @@ impl Daemon {
             return error("not_found", format!("item {id}"));
         };
         let full = session.capabilities().contains(&Capability::Full);
-        if !full && item.policy.auto_rotate && !policy.auto_rotate {
-            return error(
-                "needs_confirmation",
-                "turning rotation off needs confirmation in the desktop app",
-            );
+        if !full {
+            let default_interval = lock(&self.settings).default_interval;
+            if let Some(msg) = weakens_policy(&item.policy, &policy, default_interval) {
+                return error("needs_confirmation", msg);
+            }
         }
         item.policy = policy;
         rewrite_item(&mut v, item)
@@ -621,10 +644,7 @@ impl Daemon {
         Response::Audit { audit: out }
     }
 
-    fn pair(&self, session: &Session, name: String, caps: Vec<Capability>) -> Response {
-        if session.is_bootstrap() {
-            return error("forbidden", "pairing needs a Full client");
-        }
+    fn pair(&self, name: String, caps: Vec<Capability>) -> Response {
         if name.trim().is_empty() || caps.is_empty() {
             return error("bad_request", "name and capabilities are required");
         }
@@ -866,7 +886,7 @@ impl Handler for Daemon {
                 Ok(false) => error("not_found", format!("inbox entry {id}")),
                 Err(e) => err_resp(&e),
             },
-            Request::Pair { name, capabilities } => self.pair(session, name, capabilities),
+            Request::Pair { name, capabilities } => self.pair(name, capabilities),
             Request::McpHttpRequest {
                 item,
                 method,
@@ -1018,6 +1038,38 @@ pub async fn run(paths: Paths, vault_override: Option<PathBuf>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn partial_client_cannot_weaken_policy() {
+        use warden_core::RotationPolicy;
+        let day = Duration::from_secs(24 * 3600);
+        let cur = RotationPolicy {
+            interval: Some(30 * day),
+            ..RotationPolicy::default()
+        };
+        let with = |f: &dyn Fn(&mut RotationPolicy)| {
+            let mut p = cur;
+            f(&mut p);
+            weakens_policy(&cur, &p, 90 * day)
+        };
+        assert!(with(&|p| p.auto_rotate = false).is_some());
+        assert!(
+            with(&|p| p.interval = Some(Duration::from_secs(u32::MAX as u64 * 86400))).is_some()
+        );
+        assert!(with(&|p| p.interval = Some(31 * day)).is_some());
+        assert!(with(&|p| p.interval = None).is_some()); // default 90 d is longer
+        assert!(with(&|p| p.lead_time = Duration::ZERO).is_some());
+        assert!(with(&|p| p.interval = Some(7 * day)).is_none());
+        assert!(with(&|p| p.lead_time = 5 * day).is_none());
+        // A value above 365 days is refused even when the current one is longer.
+        let long = RotationPolicy {
+            interval: Some(500 * day),
+            ..RotationPolicy::default()
+        };
+        let mut p = long;
+        p.interval = Some(400 * day);
+        assert!(weakens_policy(&long, &p, 90 * day).is_some());
+    }
 
     #[test]
     fn slug_rules() {

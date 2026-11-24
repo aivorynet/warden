@@ -8,7 +8,7 @@ use warden_core::ipc::{Capability, Request, Response};
 /// First frame of a session, from the client.
 #[derive(Serialize, Deserialize)]
 pub struct Hello {
-    /// The `aivw_` client token. `None` asks for the pairing bootstrap path.
+    /// The `aivw_` client token. `None` is always refused.
     pub client_token: Option<String>,
 }
 
@@ -31,8 +31,6 @@ pub enum HelloReply {
     Accepted {
         /// Capabilities of the session.
         capabilities: Vec<Capability>,
-        /// The session is a pairing bootstrap session: only `Pair` works, once.
-        bootstrap: bool,
     },
     /// The server refuses the session and closes the connection.
     Refused {
@@ -47,12 +45,6 @@ pub enum HelloReply {
 pub enum ClientMsg {
     /// A request for the handler.
     Request(Box<Request>),
-    /// Open the pairing window. Only a `Full` session may send it. The server answers it
-    /// itself; the handler never sees it.
-    SetPairingMode {
-        /// `true` opens the window, `false` closes it.
-        enabled: bool,
-    },
 }
 
 /// Serialize a [`Response`] to its JSON wire form.

@@ -1,7 +1,7 @@
 //! End-to-end tests over the real transport.
 
 use crate::frame::{FrameError, MAX_FRAME, read_msg, write_msg};
-use crate::proto::{ClientMsg, Hello, HelloReply, read_response};
+use crate::proto::{Hello, HelloReply, read_response};
 use crate::{Client, Handler, PairingStore, Server, Session, os};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -42,7 +42,6 @@ impl Handler for Counting {
 struct Fixture {
     path: PathBuf,
     handler: Arc<Counting>,
-    pairing: crate::PairingMode,
     full: String,
     mcp: String,
     _dir: Option<tempfile::TempDir>,
@@ -76,13 +75,11 @@ fn start(tag: &str) -> Fixture {
     let server = Server::bind(Some(&path))
         .unwrap()
         .with_pairing_store(Arc::new(store));
-    let pairing = server.pairing_mode();
     let handler = Arc::new(Counting::default());
     tokio::spawn(server.serve(handler.clone()));
     Fixture {
         path,
         handler,
-        pairing,
         full,
         mcp,
         _dir: dir,
@@ -140,8 +137,6 @@ async fn mcp_use_cannot_change_policy_or_delete() {
         .await
         .unwrap();
     assert!(is_forbidden(&r));
-    assert!(is_forbidden(&c.set_pairing_mode(true).await.unwrap()));
-    assert!(!f.pairing.is_active());
     assert_eq!(f.handler.0.load(Ordering::SeqCst), 0);
     // An allowed request still works on the same session.
     assert!(matches!(
@@ -151,33 +146,123 @@ async fn mcp_use_cannot_change_policy_or_delete() {
 }
 
 #[tokio::test]
-async fn pairing_window_allows_one_pair() {
-    let f = start("pairing");
-    let pair = || Request::Pair {
-        name: "mcp".into(),
-        capabilities: vec![Capability::McpUse],
-    };
-    // A Full client opens the window.
+async fn tokenless_connection_refused_always() {
+    let f = start("nobootstrap");
+    // Even after a Full client paired another client, a tokenless client has no way in.
     let mut admin = Client::connect(Some(&f.path), Some(&f.full)).await.unwrap();
-    assert!(matches!(
-        admin.set_pairing_mode(true).await.unwrap(),
-        Response::Ok
-    ));
-    assert!(f.pairing.is_active());
-
-    let mut c = Client::connect(Some(&f.path), None).await.unwrap();
-    assert!(c.is_bootstrap());
-    // A bootstrap session may do nothing but Pair.
-    assert!(is_forbidden(&c.call(Request::ListItems).await.unwrap()));
-    assert_eq!(f.handler.0.load(Ordering::SeqCst), 0);
-    assert!(matches!(
-        c.call(pair()).await.unwrap(),
-        Response::Paired { .. }
-    ));
-    // The window is closed now.
-    assert!(is_forbidden(&c.call(pair()).await.unwrap()));
+    let r = admin
+        .call(Request::Pair {
+            name: "mcp".into(),
+            capabilities: vec![Capability::McpUse],
+        })
+        .await
+        .unwrap();
+    assert!(matches!(r, Response::Paired { .. }));
     assert!(Client::connect(Some(&f.path), None).await.is_err());
     assert_eq!(f.handler.0.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn oversize_response_keeps_session() {
+    struct Big;
+    #[async_trait::async_trait]
+    impl Handler for Big {
+        async fn handle(&self, _s: &Session, req: Request) -> Response {
+            match req {
+                Request::Lock => Response::Error {
+                    code: "x".into(),
+                    message: "a".repeat(MAX_FRAME + 10),
+                },
+                _ => Response::Ok,
+            }
+        }
+    }
+    let f = start("bigresp");
+    // A second server is not needed: reuse the fixture path with a new handler is impossible,
+    // so bind a dedicated one.
+    #[cfg(unix)]
+    let (path, _d) = {
+        let d = tempfile::tempdir().unwrap();
+        (d.path().join("b.sock"), d)
+    };
+    #[cfg(windows)]
+    let (path, _d) = (
+        PathBuf::from(format!(
+            r"\\.\pipe\aivory-warden-test-big-{}",
+            std::process::id()
+        )),
+        (),
+    );
+    let _ = f;
+    let token = ClientToken::generate().expose().to_string();
+    let store = Store(HashMap::from([(token.clone(), vec![Capability::Full])]));
+    let server = Server::bind(Some(&path))
+        .unwrap()
+        .with_pairing_store(Arc::new(store));
+    tokio::spawn(server.serve(Arc::new(Big)));
+    let mut c = Client::connect(Some(&path), Some(&token)).await.unwrap();
+    let r = c.call(Request::Lock).await.unwrap();
+    assert!(matches!(r, Response::Error { code, .. } if code == "response_too_large"));
+    assert!(matches!(
+        c.call(Request::Status).await.unwrap(),
+        Response::Ok
+    ));
+}
+
+#[tokio::test]
+async fn call_times_out_and_marks_session_broken() {
+    struct Slow;
+    #[async_trait::async_trait]
+    impl Handler for Slow {
+        async fn handle(&self, _s: &Session, _req: Request) -> Response {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            Response::Ok
+        }
+    }
+    #[cfg(unix)]
+    let (path, _d) = {
+        let d = tempfile::tempdir().unwrap();
+        (d.path().join("s.sock"), d)
+    };
+    #[cfg(windows)]
+    let (path, _d) = (
+        PathBuf::from(format!(
+            r"\\.\pipe\aivory-warden-test-slow-{}",
+            std::process::id()
+        )),
+        (),
+    );
+    let token = ClientToken::generate().expose().to_string();
+    let store = Store(HashMap::from([(token.clone(), vec![Capability::Full])]));
+    let server = Server::bind(Some(&path))
+        .unwrap()
+        .with_pairing_store(Arc::new(store));
+    tokio::spawn(server.serve(Arc::new(Slow)));
+    let mut c = Client::connect(Some(&path), Some(&token)).await.unwrap();
+    let r = c
+        .call_with_timeout(Request::Lock, std::time::Duration::from_millis(200))
+        .await;
+    assert!(r.is_err());
+    assert!(c.is_broken());
+    assert!(c.call(Request::Lock).await.is_err());
+}
+
+#[test]
+fn restrict_to_owner_works() {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path().join("cli.token");
+    std::fs::write(&p, "x").unwrap();
+    crate::restrict_to_owner(&p).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&p).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    // The owner can still read the file.
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "x");
 }
 
 #[tokio::test]
@@ -218,7 +303,6 @@ async fn oversize_frame_refused() {
         Err(FrameError::Closed | FrameError::Io(_))
     ));
     assert_eq!(f.handler.0.load(Ordering::SeqCst), 0);
-    let _ = ClientMsg::SetPairingMode { enabled: false };
 }
 
 /// Needs `sudo -n` and Python 3 and a second user (`nobody`). It runs in CI on Linux only.

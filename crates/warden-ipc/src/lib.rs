@@ -8,17 +8,10 @@
 //!   binds the session to the token capabilities and refuses each request that
 //!   `Capability::allows` denies.
 //!
-//! # Pairing bootstrap
+//! # Pairing
 //!
-//! A client needs a token to talk to the daemon, and it needs the daemon to get a token. The
-//! pairing window solves this:
-//!
-//! 1. A `Full` client (the CLI) sends `set_pairing_mode(true)`, or the daemon calls
-//!    [`PairingMode::enable`] itself (for example on first run).
-//! 2. For 120 seconds, a client may connect without a token. The session is a bootstrap
-//!    session. It allows only `Request::Pair`.
-//! 3. The first `Pair` request closes the window before the handler runs. The handler creates
-//!    the token and answers `Response::Paired`. A second `Pair` fails until the window opens again.
+//! A connection without a token is always refused. A new client gets its token from a `Full`
+//! session (the CLI or the desktop app) with `Request::Pair`.
 //!
 //! The transport peer check still applies: only the same OS user can connect at all.
 
@@ -39,4 +32,9 @@ pub use proto::{
     write_response,
 };
 pub use server::{Handler, Server};
-pub use session::{EmptyStore, PAIRING_WINDOW, PairingMode, PairingStore, Session};
+pub use session::{EmptyStore, PairingStore, Session};
+
+/// Restrict the file at `path` to its owner: mode 0600 on Unix, an owner-only DACL on Windows.
+pub fn restrict_to_owner(path: &std::path::Path) -> std::io::Result<()> {
+    os::restrict_to_owner(path)
+}

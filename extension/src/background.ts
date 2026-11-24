@@ -1,7 +1,7 @@
 // Service worker. Capture runs only after a click on the context menu entry.
 
 import { detectSelection, type Candidate } from "./detect.js";
-import { originOf } from "./host.js";
+import { originOf, selectionUrl } from "./host.js";
 
 const MENU_ID = "save-selection";
 
@@ -20,8 +20,9 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== MENU_ID) return;
-  // The origin comes from the browser (the tab URL), never from page content.
-  const origin = originOf(tab?.url ?? info.pageUrl);
+  // The origin comes from the browser, never from page content. A selection in an iframe
+  // belongs to the frame URL, not to the top-level tab URL.
+  const origin = originOf(selectionUrl(info, tab));
   if (!origin) {
     pending = { origin: null, candidates: [], error: "This page cannot be captured." };
   } else {

@@ -7,7 +7,8 @@ signing keys, the Stripe account and every deploy.
 ## Flow
 
 1. The buyer pays on the Stripe Payment Link
-   `https://buy.stripe.com/5kQbJ3csm21Xfz64DhdjO00` (the same link as Hopover).
+   `https://buy.stripe.com/5kQbJ3csm21Xfz64DhdjO00` (the shared Aivory donation link, also used by Hopover).
+   This link has no return page today, so the Worker is not in use yet.
 2. Stripe redirects to `https://aivory.net/coffee/receipt?session_id={CHECKOUT_SESSION_ID}`.
 3. The Worker fetches the session from Stripe and requires `payment_status == "paid"`.
 4. The Worker signs `{year, receipt_id, issued}` with Ed25519 and shows the code.
@@ -52,8 +53,8 @@ Code format (see `crates/warden-coffee/src/lib.rs`):
 
 5. Paste the printed public key into `PRODUCTION_PUBLIC_KEY` in
    `crates/warden-coffee/src/lib.rs`. Do this in a separate change.
-6. Set the success URL on the Stripe Payment Link to the line below.
-   Hopover uses the same link, so Hopover buyers also get a Warden receipt page:
+6. To use the Worker, make a separate Warden Payment Link (keep the donation link
+   without a return page) and set its success URL to:
 
    `https://aivory.net/coffee/receipt?session_id={CHECKOUT_SESSION_ID}`
 

@@ -33,6 +33,32 @@ check:windows:
     - ./rustup-init.exe -y --default-toolchain 1.95.0 --profile minimal -c rustfmt -c clippy
     - $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
 
+sftp-test:
+  stage: check
+  image: rust:1.95
+  tags: [docker]
+  services:
+    - name: lscr.io/linuxserver/openssh-server:latest
+      alias: sshd
+  variables:
+    PASSWORD_ACCESS: "true"
+    USER_NAME: warden
+    USER_PASSWORD: warden-ci-only
+    SSH_HOST: sshd
+    SSH_PORT: "2222"
+  script:
+    - apt-get update -qq && apt-get install -y -qq openssh-client sshpass
+    - mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+    - ssh-keygen -q -t ed25519 -N "" -f "$HOME/.ssh/ci_key"
+    - for i in $(seq 1 30); do ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" > "$HOME/.ssh/ci_known_hosts" 2>/dev/null && [ -s "$HOME/.ssh/ci_known_hosts" ] && break; sleep 2; done
+    - sshpass -p "$USER_PASSWORD" ssh-copy-id -i "$HOME/.ssh/ci_key.pub" -o UserKnownHostsFile="$HOME/.ssh/ci_known_hosts" -p "$SSH_PORT" "$USER_NAME@$SSH_HOST"
+    - >-
+      ssh -i "$HOME/.ssh/ci_key" -o UserKnownHostsFile="$HOME/.ssh/ci_known_hosts"
+      -p "$SSH_PORT" "$USER_NAME@$SSH_HOST"
+      'printf "TOKEN=seed\n" > /config/warden-sink-test.env'
+    - export WARDEN_TEST_SSH="$SSH_HOST;$SSH_PORT;$USER_NAME;$HOME/.ssh/ci_key;$HOME/.ssh/ci_known_hosts;/config"
+    - cargo test -p warden-sinks --test ssh
+
 deny:
   stage: check
   image: rust:1.95

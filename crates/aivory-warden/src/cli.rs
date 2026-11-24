@@ -122,7 +122,41 @@ enum Cmd {
     /// Run the MCP server on stdio (agents start this).
     Mcp,
     /// Run the background daemon.
-    Daemon,
+    Daemon {
+        /// Cache the vault key in this file (mode 0600). Opt-in, for headless Linux.
+        #[arg(long, value_name = "PATH")]
+        key_file: Option<PathBuf>,
+    },
+    /// Join an existing synced vault as a new device (use `--vault DIR`).
+    Join(JoinArgs),
+    /// Move the rotator role of tokens to another device.
+    Handover {
+        /// Name or id of the token.
+        #[arg(required_unless_present = "all")]
+        name: Option<String>,
+        /// Move every token.
+        #[arg(long, conflicts_with = "name")]
+        all: bool,
+        /// Target device: name or id (see `awd devices`).
+        #[arg(long)]
+        to: String,
+    },
+}
+
+#[derive(Debug, Args)]
+struct JoinArgs {
+    /// Name of this device.
+    #[arg(long)]
+    device_name: Option<String>,
+    /// Sign the coffee pledge without a prompt (scripts and tests).
+    #[arg(long)]
+    pledge: bool,
+    /// Read the vault password from the first line of stdin.
+    #[arg(long)]
+    password_stdin: bool,
+    /// Print the result as one JSON object.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -165,7 +199,7 @@ struct ItemArgs {
     #[arg(long, value_enum)]
     provider: Option<ProviderArg>,
     /// Provider configuration as JSON.
-    #[arg(long, conflicts_with = "config_file")]
+    #[arg(long, alias = "provider-config", conflicts_with = "config_file")]
     config: Option<String>,
     /// Provider configuration in a JSON file.
     #[arg(long)]
@@ -187,12 +221,13 @@ struct ItemArgs {
     auto: Option<OnOff>,
     /// A place that receives the token. Repeat the flag for more places.
     /// Forms: dotenv:PATH:KEY, json:PATH:/ptr, toml:PATH:a.b, yaml:PATH:a.b,
-    /// ssh:user@host:/path:toml:a.b, env:NAME
+    /// regex:PATH:PATTERN:TEMPLATE, ssh:user@host:/path:toml:a.b, env:NAME
     #[arg(long = "sink", value_name = "SPEC")]
     sinks: Vec<String>,
-    /// Name of the admin token that creates this token (makes a derived token).
-    #[arg(long)]
-    parent: Option<String>,
+    /// Name of the admin token that creates this token (makes a derived token). Warden
+    /// creates the token at the provider. You give no value.
+    #[arg(long, alias = "parent")]
+    derived_from: Option<String>,
     /// Host that MCP clients may send this token to. Repeat for more hosts.
     #[arg(long = "mcp-host", value_name = "HOST")]
     mcp_hosts: Vec<String>,
@@ -409,7 +444,7 @@ pub fn main() -> ExitCode {
         }
         let cli = Cli::parse_from(argv);
         let note_verb = matches!(cli.cmd, Cmd::Status | Cmd::List | Cmd::Rotate { .. });
-        init_logging(matches!(cli.cmd, Cmd::Daemon));
+        init_logging(matches!(cli.cmd, Cmd::Daemon { .. }));
         let ctx = Ctx {
             paths,
             vault: cli.vault,
@@ -453,10 +488,21 @@ async fn run(ctx: &Ctx, cmd: Cmd) -> Code {
         Cmd::Service { cmd } => service_cmd(cmd),
         Cmd::Extension { cmd } => extension(ctx, cmd),
         Cmd::Mcp => mcp(ctx).await,
-        Cmd::Daemon => {
-            daemon::run(ctx.paths.clone(), ctx.vault.clone()).await?;
+        Cmd::Daemon { key_file } => {
+            daemon::run(ctx.paths.clone(), ctx.vault.clone(), key_file).await?;
             Ok(0)
         }
+        Cmd::Join(a) => {
+            let a = InitArgs {
+                join: true,
+                device_name: a.device_name,
+                pledge: a.pledge,
+                password_stdin: a.password_stdin,
+                json: a.json,
+            };
+            init(ctx, a).await
+        }
+        Cmd::Handover { name, all, to } => handover(ctx, name, all, &to).await,
     }
 }
 
@@ -1035,13 +1081,27 @@ async fn build_draft(
     hint_expires: Option<DateTime<Utc>>,
 ) -> Result<ItemDraft> {
     let tty = interactive();
+    let parent_item = match &a.derived_from {
+        Some(p) => {
+            let id = resolve(c, p).await?.id;
+            Some(get_item(c, id).await?)
+        }
+        None => None,
+    };
+    let parent_id = parent_item.as_ref().map(|p| p.id);
     let name = match a.name.take().or(hint_name.clone()) {
         Some(n) if !tty || a.name.is_some() || hint_name.is_none() => n,
         Some(n) => ask("Name", Some(n), false)?,
         None if tty => ask("Name", None, false)?,
         None => return Err(cfg_err("missing --name")),
     };
-    let provider = match a.provider.or(hint_provider) {
+    let inherited = parent_item.as_ref().and_then(|p| {
+        ProviderArg::ALL
+            .iter()
+            .find(|(_, k)| k.kind() == p.provider.kind)
+            .map(|(_, k)| *k)
+    });
+    let provider = match a.provider.or(hint_provider).or(inherited) {
         Some(p) => p,
         None if tty => {
             let names: Vec<&str> = ProviderArg::ALL.iter().map(|(n, _)| *n).collect();
@@ -1072,6 +1132,18 @@ async fn build_draft(
     if !config.is_object() {
         return Err(cfg_err("the provider config must be a JSON object"));
     }
+    // A derived token starts from the config of its admin token (base URL, region) and
+    // adds its own keys (project id, scopes).
+    let config = match (&parent_item, config) {
+        (Some(p), serde_json::Value::Object(own))
+            if p.provider.kind == provider.kind() && p.provider.config.is_object() =>
+        {
+            let mut m = p.provider.config.as_object().cloned().unwrap_or_default();
+            m.extend(own);
+            serde_json::Value::Object(m)
+        }
+        (_, c) => c,
+    };
     let expires_at = match &a.expires {
         Some(s) => Some(parse_expires(s)?),
         None if tty && hint_expires.is_none() => {
@@ -1103,10 +1175,8 @@ async fn build_draft(
         .iter()
         .map(|s| sinkspec::parse(s, &ssh))
         .collect::<Result<Vec<_>>>()?;
-    let kind = match &a.parent {
-        Some(p) => ItemKind::Derived {
-            parent: resolve(c, p).await?.id,
-        },
+    let kind = match parent_id {
+        Some(parent) => ItemKind::Derived { parent },
         None => ItemKind::Admin,
     };
     let mut policy = RotationPolicy::default();
@@ -1143,11 +1213,19 @@ fn read_secret_stdin() -> Result<SecretValue> {
 
 async fn add(ctx: &Ctx, a: AddArgs) -> Code {
     let mut c = connect(&ctx.paths).await?;
-    let derived = a.item.parent.is_some();
+    let derived = a.item.derived_from.is_some();
     let draft = build_draft(&mut c, a.item, None, None, None).await?;
-    let secret = if derived {
-        SecretValue::new("")
-    } else if a.secret_stdin {
+    if derived {
+        let name = draft.name.clone();
+        return match call(&mut c, Request::CreateDerived { draft }).await? {
+            Response::Added { item } => {
+                println!("\u{2713} created {name} at the provider ({item})");
+                Ok(0)
+            }
+            _ => Err(unexpected()),
+        };
+    }
+    let secret = if a.secret_stdin {
         read_secret_stdin()?
     } else {
         prompt_secret("WARDEN_ITEM_SECRET", "Secret value (hidden): ", false)?
@@ -1204,6 +1282,31 @@ async fn rotate(ctx: &Ctx, name: Option<String>, all: bool) -> Code {
         }
     }
     Ok(failed)
+}
+
+async fn handover(ctx: &Ctx, name: Option<String>, all: bool, to: &str) -> Code {
+    let mut c = connect(&ctx.paths).await?;
+    let Response::Devices { devices } = call(&mut c, Request::ListDevices).await? else {
+        return Err(unexpected());
+    };
+    let by_name: Vec<_> = devices
+        .iter()
+        .filter(|d| d.id.to_string() == to || d.name.eq_ignore_ascii_case(to))
+        .collect();
+    let [dev] = by_name.as_slice() else {
+        return Err(cfg_err(format!(
+            "device `{to}` not found or not unique (see `awd devices`)"
+        )));
+    };
+    let item = if all {
+        None
+    } else {
+        let n = name.ok_or_else(|| cfg_err("give a token name or use --all"))?;
+        Some(resolve(&mut c, &n).await?.id)
+    };
+    call(&mut c, Request::Handover { item, to: dev.id }).await?;
+    println!("\u{2713} rotator role moved to {}", dev.name);
+    Ok(0)
 }
 
 async fn policy(ctx: &Ctx, cmd: PolicyCmd) -> Code {

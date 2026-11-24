@@ -12,6 +12,9 @@ use warden_core::{
     RotationClass, SecretValue, WardenError, provider_token_name,
 };
 
+const DEAD_CREDENTIAL: &str =
+    "needs manual re-entry: the credential is no longer valid after an interrupted rotation";
+
 pub(crate) struct BusyGuard<'a> {
     engine: &'a Engine,
     id: ItemId,
@@ -89,16 +92,32 @@ impl Engine {
             .into_iter()
             .find(|e| e.item_id == item_id && e.revoke.is_none());
         let mut entry = match resume {
-            Some(e) => e,
+            Some(e) => {
+                if e.issued.is_none() {
+                    self.check_before_reissue(&item, &e).await?;
+                }
+                e
+            }
             None => {
                 let provider = (self.providers)(&item.provider)?;
                 let now = self.clock.now();
+                let mut old = item.provider_token_id.clone();
+                // An admin key that was added by hand has no stored id yet. Ask the provider,
+                // so the rotation can revoke the old key.
+                if old.is_none()
+                    && item.kind == ItemKind::Admin
+                    && provider.class() == RotationClass::Overlap
+                    && let Ok(cred) = self.secret_of(&item.id)
+                    && let Ok(info) = provider.verify(&cred).await
+                {
+                    old = Some(info.provider_token_id);
+                }
                 let e = JournalEntry {
                     id: Uuid::now_v7(),
                     item_id,
                     class: provider.class(),
                     started_at: now,
-                    old_provider_token_id: item.provider_token_id.clone(),
+                    old_provider_token_id: old,
                     token_name: provider_token_name(&item.slug, now.date_naive()),
                     issued: None,
                     stored: false,
@@ -114,6 +133,89 @@ impl Engine {
             }
         };
         self.drive_guarded(&mut entry).await
+    }
+
+    /// An earlier attempt may have acted at the provider without a reply. Check the provider
+    /// state before the engine issues again. Never drops the intent.
+    async fn check_before_reissue(&self, item: &Item, entry: &JournalEntry) -> Result<()> {
+        if entry.class != RotationClass::AtomicSwap || item.kind != ItemKind::Admin {
+            return Ok(());
+        }
+        let provider = (self.providers)(&item.provider)?;
+        let cred = self.secret_of(&item.id)?;
+        match provider.verify(&cred).await {
+            Ok(_) => Ok(()),
+            Err(WardenError::ProviderAuth(_)) => {
+                self.mark_dead(item, entry.attempts + 1, DEAD_CREDENTIAL);
+                Err(WardenError::Config(DEAD_CREDENTIAL.into()))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Set the status `Failed` and tell the user that a new credential is needed.
+    pub(crate) fn mark_dead(&self, item: &Item, attempts: u32, msg: &str) {
+        let next_retry = self.clock.now() + delta(self.config.backoff_max);
+        self.set_status(
+            item.id,
+            ItemStatus::Failed {
+                error: msg.into(),
+                attempts,
+                next_retry,
+            },
+        );
+        self.emit(EngineEvent::Failed {
+            item_id: item.id,
+            name: item.name.clone(),
+            error: msg.into(),
+            next_retry: None,
+        });
+    }
+
+    /// Create the first token of a derived item at the provider, store it and write the sinks.
+    ///
+    /// The item must be `Derived` and this device must be its rotator. The item enters the
+    /// vault first (empty value). When the provider proves that it issued nothing, the item is
+    /// removed again. A sink failure keeps the item and returns a report with `complete == false`.
+    pub async fn create_derived(&self, item: Item) -> Result<RotationReport> {
+        if !matches!(item.kind, ItemKind::Derived { .. }) {
+            return Err(WardenError::Config("item is not derived".into()));
+        }
+        let id = item.id;
+        self.with_vault(|v| {
+            v.put(
+                item,
+                [(TOKEN_SECRET.to_owned(), SecretValue::new(""))]
+                    .into_iter()
+                    .collect(),
+            )
+        })?;
+        match self.rotate(id).await {
+            Ok(r) => Ok(r),
+            Err(e) => {
+                if proves_not_issued(&e) {
+                    let _ = self.with_vault(|v| v.delete(&id));
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Provider config plus hints for the orphan cleanup (`Overlap` only).
+    fn hinted_config(&self, item: &Item, entry: &JournalEntry) -> serde_json::Value {
+        let mut c = item.provider.config.clone();
+        if entry.class == RotationClass::Overlap
+            && let Some(o) = c.as_object_mut()
+        {
+            o.insert(
+                "_warden_intent_at".into(),
+                entry.started_at.to_rfc3339().into(),
+            );
+            if let Some(id) = &item.provider_token_id {
+                o.insert("_warden_current_id".into(), id.clone().into());
+            }
+        }
+        c
     }
 
     /// Run `drive` and record a failure in the status, the journal and the event channel.
@@ -322,7 +424,7 @@ impl Engine {
                     item_id: item.id,
                     token_name: entry.token_name.clone(),
                     provider_token_id: item.provider_token_id.clone(),
-                    config: item.provider.config.clone(),
+                    config: self.hinted_config(item, entry),
                     expires_at: None,
                 };
                 provider.rotate_self(&cred, &req).await?
@@ -350,7 +452,7 @@ impl Engine {
                 let req = CreateRequest {
                     item_id: item.id,
                     token_name: entry.token_name.clone(),
-                    config: item.provider.config.clone(),
+                    config: self.hinted_config(item, entry),
                     scopes,
                     expires_at: None,
                 };
@@ -482,15 +584,10 @@ impl Engine {
             let cred = self.secret_of(&item.id)?;
             if let Err(e) = provider.verify(&cred).await {
                 if matches!(e, WardenError::ProviderAuth(_)) {
-                    self.emit(EngineEvent::Failed {
-                        item_id: item.id,
-                        name: item.name.clone(),
-                        error: "credential is no longer valid after an interrupted rotation".into(),
-                        next_retry: None,
-                    });
-                } else {
-                    return Ok(()); // unknown: keep the intent, try again on the next recover
+                    // Keep the intent. The user must enter a new credential.
+                    self.mark_dead(item, entry.attempts + 1, DEAD_CREDENTIAL);
                 }
+                return Ok(()); // keep the intent, try again on the next recover
             }
         }
         self.journal.remove(entry.id)

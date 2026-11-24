@@ -886,13 +886,65 @@ async fn ambiguous_issue_error_keeps_the_intent_and_recover_verifies() {
     let eng2 = e.engine();
     let mut rx2 = eng2.subscribe();
     eng2.recover().await.unwrap();
-    assert_eq!(e.journal_files(), 0);
+    assert_eq!(e.journal_files(), 1, "the intent is never dropped");
     let mut failed = false;
     while let Ok(ev) = rx2.try_recv() {
         failed |= matches!(ev, EngineEvent::Failed { .. });
     }
     assert!(failed, "recover reports the dead credential");
     assert!(rx.try_recv().is_err());
+    // A new rotation does not issue again. It reports that the user must re-enter.
+    let calls = e.fake.calls();
+    e.fake.set_issue_fail(None);
+    let err = eng2.rotate(id).await.unwrap_err().to_string();
+    assert!(err.contains("manual re-entry"), "{err}");
+    assert_eq!(e.journal_files(), 1);
+    assert_eq!(e.fake.calls(), calls + 1, "only the verify call");
+    assert!(matches!(eng2.status(&id), ItemStatus::Failed { .. }));
+}
+
+#[tokio::test]
+async fn first_derived_token_is_created_and_failure_rolls_back() {
+    let e = Env::new();
+    let admin = e.admin("p", true, 1, policy(0));
+    let eng = e.engine();
+    let mut item = e.vault_item(e.derived("tmpl", admin, true, 1));
+    e.vault.lock().unwrap().delete(&item.id).unwrap();
+    item.id = ItemId::new();
+    item.name = "fresh".into();
+    item.slug = "fresh".into();
+    item.provider_token_id = None;
+    let id = item.id;
+    let r = eng.create_derived(item.clone()).await.unwrap();
+    assert!(r.complete);
+    assert!(e.fake.is_valid(&e.vault_value(id)));
+    assert!(e.vault_item(id).provider_token_id.is_some());
+    // A 4xx at the provider removes the new item again.
+    let mut bad = item;
+    bad.id = ItemId::new();
+    bad.name = "bad".into();
+    bad.slug = "bad".into();
+    bad.provider_token_id = None;
+    let bad_id = bad.id;
+    e.fake.set_issue_fail(Some(("HTTP 400: bad scope", false)));
+    assert!(eng.create_derived(bad).await.is_err());
+    assert!(e.vault.lock().unwrap().get(&bad_id).is_none());
+}
+
+#[tokio::test]
+async fn revoke_404_with_a_dead_credential_stays_queued() {
+    let e = Env::new();
+    let id = e.admin("a", false, 1, policy(3600));
+    let eng = e.engine();
+    eng.rotate(id).await.unwrap();
+    e.clock.advance(CDuration::hours(2));
+    e.fake.set_revoke_404(true);
+    // The check of the credential fails: the 404 is not proof that the token is gone.
+    let cur = e.vault_value(id);
+    e.fake.0.lock().unwrap().valid.remove(&cur);
+    let rv = eng.run_pending_revokes().await.unwrap();
+    assert!(rv.len() == 1 && !rv[0].done, "{rv:?}");
+    assert_eq!(e.journal_files(), 1);
 }
 
 #[tokio::test]

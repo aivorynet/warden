@@ -7,6 +7,7 @@
 //! - `toml:PATH:a.b` and `yaml:PATH:a.b`
 //! - `ssh:user@host[:port]:/remote/path:dotenv|json|toml|yaml:KEY`
 //! - `env:NAME`
+//! - `regex:PATH:PATTERN:TEMPLATE`
 //!
 //! The key is the text after the last colon, so a Windows drive letter in PATH works.
 
@@ -69,9 +70,33 @@ pub fn parse(spec: &str, ssh: &SshDefaults) -> Result<SinkSpec> {
                 },
             })
         }
+        "regex" => parse_regex(rest),
         "ssh" => parse_ssh(rest, ssh),
         other => Err(bad(&format!("unknown kind `{other}`"))),
     }
+}
+
+/// `PATH:PATTERN:TEMPLATE`. PATH ends at the first colon (after a Windows drive letter).
+/// TEMPLATE starts after the last colon, so the pattern may hold colons.
+fn parse_regex(rest: &str) -> Result<SinkSpec> {
+    let usage = || bad("use regex:PATH:PATTERN:TEMPLATE");
+    let b = rest.as_bytes();
+    let skip = if b.len() > 2 && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/') {
+        2
+    } else {
+        0
+    };
+    let i = rest[skip..].find(':').ok_or_else(usage)? + skip;
+    let (path, tail) = (&rest[..i], &rest[i + 1..]);
+    let (pattern, template) = tail.rsplit_once(':').ok_or_else(usage)?;
+    if path.is_empty() || pattern.is_empty() || template.is_empty() {
+        return Err(usage());
+    }
+    Ok(SinkSpec::Regex {
+        path: abs(path)?,
+        pattern: pattern.into(),
+        template: template.into(),
+    })
 }
 
 fn parse_ssh(rest: &str, ssh: &SshDefaults) -> Result<SinkSpec> {
@@ -132,6 +157,28 @@ mod tests {
         assert!(matches!(s, SinkSpec::Json { pointer, .. } if pointer == "/a/b"));
         let s = parse(r"dotenv:C:\work\.env:TOKEN", &d()).unwrap();
         assert!(matches!(s, SinkSpec::Dotenv { key, .. } if key == "TOKEN"));
+    }
+
+    #[test]
+    fn regex_sink() {
+        let s = parse(r"regex:C:\w\a.conf:key=(\w+):key={{secret}}", &d()).unwrap();
+        match s {
+            SinkSpec::Regex {
+                path,
+                pattern,
+                template,
+            } => {
+                assert!(path.to_string_lossy().ends_with("a.conf"));
+                assert_eq!(
+                    (pattern.as_str(), template.as_str()),
+                    (r"key=(\w+)", "key={{secret}}")
+                );
+            }
+            _ => panic!("not regex"),
+        }
+        let s = parse(r"regex:/a/b:url=(h:\d+):x", &d()).unwrap();
+        assert!(matches!(s, SinkSpec::Regex { pattern, .. } if pattern == r"url=(h:\d+)"));
+        assert!(parse("regex:/a/b:only", &d()).is_err());
     }
 
     #[test]

@@ -108,6 +108,7 @@ dependencies = [
  "warden-providers",
  "warden-sinks",
  "warden-vault",
+ "wiremock",
  "zeroize",
 ]
 

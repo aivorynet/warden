@@ -230,6 +230,20 @@ pub enum Request {
         #[serde(serialize_with = "expose::serialize")]
         secret: SecretValue,
     },
+    /// Create a derived item. The daemon creates the first token at the provider with the
+    /// admin item named in `draft.kind`, stores it and writes the sinks. `Full` only.
+    CreateDerived {
+        /// Item data. `draft.kind` must be `Derived`.
+        draft: ItemDraft,
+    },
+    /// Move the rotator role of one item (or of every item) to another device. `Full` only.
+    Handover {
+        /// Item id. `None` moves every item.
+        #[serde(default)]
+        item: Option<ItemId>,
+        /// Device that rotates from now on.
+        to: DeviceId,
+    },
     /// Change the rotation policy of an item.
     UpdatePolicy {
         /// Item id.
@@ -507,6 +521,18 @@ mod tests {
             assert!(!cap.allows(&Request::SignPledge { user: "u".into() }));
         }
         assert!(Capability::Full.allows(&unpair));
+        let handover = Request::Handover {
+            item: None,
+            to: DeviceId::new(),
+        };
+        for cap in [
+            Capability::McpUse,
+            Capability::McpAdmin,
+            Capability::InboxWrite,
+        ] {
+            assert!(!cap.allows(&handover));
+        }
+        assert!(Capability::Full.allows(&handover));
     }
 
     #[test]

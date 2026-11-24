@@ -22,7 +22,7 @@ use warden_engine::{
 };
 use warden_ipc::{Handler, Server, Session};
 use warden_mcp::proxy::{self, HttpCall};
-use warden_vault::{AuditAction, SecretKey, Vault, keychain};
+use warden_vault::{AuditAction, KeyFileCache, SecretKey, Vault, keychain};
 
 /// Longest rotation interval that a client without the `Full` capability may set.
 const MAX_PARTIAL_INTERVAL: Duration = Duration::from_secs(365 * 24 * 3600);
@@ -64,6 +64,7 @@ pub struct Daemon {
     clock: Arc<dyn Clock>,
     engine_cfg: EngineConfig,
     keychain_enabled: bool,
+    key_file: Option<KeyFileCache>,
     notify_enabled: bool,
     coffee_lock: Arc<Mutex<()>>,
 }
@@ -145,9 +146,17 @@ impl Daemon {
             clock: Arc::new(SystemClock),
             engine_cfg,
             keychain_enabled: !flag("WARDEN_NO_KEYCHAIN"),
+            key_file: None,
             notify_enabled: !flag("WARDEN_NO_NOTIFY"),
             coffee_lock: Arc::new(Mutex::new(())),
         })
+    }
+
+    /// Cache the vault key in a file (mode 0600 on Unix). Opt-in, for headless Linux.
+    #[must_use]
+    pub fn with_key_file(mut self, path: PathBuf) -> Self {
+        self.key_file = Some(KeyFileCache::new(path));
+        self
     }
 
     fn vault_dir(&self) -> Result<PathBuf> {
@@ -172,19 +181,24 @@ impl Daemon {
 
     /// Open the vault with the key from the OS keychain, if one is cached.
     pub async fn try_auto_unlock(&self) {
-        if !self.keychain_enabled {
-            return;
-        }
         let Ok(dir) = self.vault_dir() else { return };
         let Some(vid) = vault_id_of(&dir) else { return };
-        let key = match keychain::load(&vid) {
-            Ok(Some(k)) => k,
-            Ok(None) => return,
-            Err(e) => {
-                tracing::warn!("keychain read failed: {e}");
-                return;
+        let mut key = None;
+        if self.keychain_enabled {
+            match keychain::load(&vid) {
+                Ok(k) => key = k,
+                Err(e) => tracing::warn!("keychain read failed: {e}"),
             }
-        };
+        }
+        if key.is_none()
+            && let Some(kf) = &self.key_file
+        {
+            match kf.load() {
+                Ok(k) => key = k,
+                Err(e) => tracing::warn!("key file read failed: {e}"),
+            }
+        }
+        let Some(key) = key else { return };
         let local = self.paths.device_dir();
         let opened =
             tokio::task::spawn_blocking(move || Vault::open_with_key(&dir, &key, &local)).await;
@@ -205,6 +219,11 @@ impl Daemon {
             if let Err(e) = keychain::store(&vault.vault_id(), &key) {
                 tracing::warn!("cannot cache the key in the keychain: {e}");
             }
+        }
+        if let Some(kf) = &self.key_file
+            && let Err(e) = kf.store(&vault.export_vault_key())
+        {
+            tracing::warn!("cannot write the key file: {e}");
         }
         if let Err(e) = std::fs::write(self.paths.device_id_file(), device.to_string()) {
             tracing::warn!("cannot write the device id file: {e}");
@@ -309,6 +328,11 @@ impl Daemon {
         {
             tracing::warn!("cannot clear the keychain entry: {e}");
         }
+        if let Some(kf) = &self.key_file
+            && let Err(e) = kf.clear()
+        {
+            tracing::warn!("cannot remove the key file: {e}");
+        }
         Response::Ok
     }
 
@@ -341,33 +365,32 @@ impl Daemon {
         }
     }
 
-    fn add_item(&self, draft: ItemDraft, secret: SecretValue) -> Response {
-        let u = match self.require() {
-            Ok(u) => u,
-            Err(r) => return r,
-        };
+    /// Check a draft and build the item. The caller holds the vault.
+    fn new_item(&self, v: &Vault, draft: ItemDraft) -> std::result::Result<Item, Response> {
         if draft.name.trim().is_empty() {
-            return error("bad_request", "name is empty");
+            return Err(error("bad_request", "name is empty"));
         }
         if !valid_slug(&draft.slug) {
-            return error(
+            return Err(error(
                 "bad_request",
                 "slug must have 1 to 40 characters from a-z, 0-9, - and _",
-            );
+            ));
         }
-        let mut v = lock(&u.vault);
         if v.items()
             .iter()
             .any(|i| i.name.eq_ignore_ascii_case(&draft.name) || i.slug == draft.slug)
         {
-            return error("conflict", "an item with this name or slug exists");
+            return Err(error("conflict", "an item with this name or slug exists"));
         }
         if let ItemKind::Derived { parent } = draft.kind
             && v.get(&parent).is_none_or(|p| p.kind != ItemKind::Admin)
         {
-            return error("bad_request", "parent must be an existing admin item");
+            return Err(error(
+                "bad_request",
+                "parent must be an existing admin item",
+            ));
         }
-        let item = Item {
+        Ok(Item {
             id: ItemId::new(),
             name: draft.name,
             slug: draft.slug,
@@ -382,6 +405,18 @@ impl Daemon {
             mcp: draft.mcp,
             rotator_device: v.device_id(),
             tags: draft.tags,
+        })
+    }
+
+    fn add_item(&self, draft: ItemDraft, secret: SecretValue) -> Response {
+        let u = match self.require() {
+            Ok(u) => u,
+            Err(r) => return r,
+        };
+        let mut v = lock(&u.vault);
+        let item = match self.new_item(&v, draft) {
+            Ok(i) => i,
+            Err(r) => return r,
         };
         let id = item.id;
         let secrets = [(TOKEN_SECRET.to_owned(), secret)].into_iter().collect();
@@ -389,6 +424,73 @@ impl Daemon {
             Ok(()) => Response::Added { item: id },
             Err(e) => err_resp(&e),
         }
+    }
+
+    /// Create a derived item. The engine makes the first token at the provider.
+    async fn create_derived(&self, draft: ItemDraft) -> Response {
+        let u = match self.require() {
+            Ok(u) => u,
+            Err(r) => return r,
+        };
+        if !matches!(draft.kind, ItemKind::Derived { .. }) {
+            return error("bad_request", "a derived item needs a parent");
+        }
+        let item = {
+            let v = lock(&u.vault);
+            match self.new_item(&v, draft) {
+                Ok(i) => i,
+                Err(r) => return r,
+            }
+        };
+        let id = item.id;
+        match u.engine.create_derived(item).await {
+            Ok(r) if r.complete => Response::Added { item: id },
+            Ok(r) => {
+                let failed: Vec<String> = r
+                    .sinks
+                    .iter()
+                    .filter(|s| !s.ok)
+                    .map(|s| format!("{}: {}", s.sink, s.error.as_deref().unwrap_or("failed")))
+                    .collect();
+                error(
+                    "sinks_incomplete",
+                    format!(
+                        "token {id} is created and stored, but a sink failed (retry runs later): {}",
+                        failed.join("; ")
+                    ),
+                )
+            }
+            Err(e) => err_resp(&e),
+        }
+    }
+
+    /// Move the rotator role of one item or of all items to another device.
+    fn handover(&self, item: Option<ItemId>, to: DeviceId) -> Response {
+        let u = match self.require() {
+            Ok(u) => u,
+            Err(r) => return r,
+        };
+        let mut v = lock(&u.vault);
+        if !v.devices().iter().any(|d| d.id == to) {
+            return error("not_found", format!("device {to}"));
+        }
+        let targets: Vec<Item> = match item {
+            Some(id) => match v.get(&id) {
+                Some(i) => vec![i.clone()],
+                None => return error("not_found", format!("item {id}")),
+            },
+            None => v.items().into_iter().cloned().collect(),
+        };
+        for mut it in targets {
+            if it.rotator_device == to {
+                continue;
+            }
+            it.rotator_device = to;
+            if let r @ Response::Error { .. } = rewrite_item(&mut v, it) {
+                return r;
+            }
+        }
+        Response::Ok
     }
 
     fn update_policy(
@@ -844,6 +946,8 @@ impl Handler for Daemon {
                 },
             },
             Request::AddItem { draft, secret } => self.add_item(draft, secret),
+            Request::CreateDerived { draft } => self.create_derived(draft).await,
+            Request::Handover { item, to } => self.handover(item, to),
             Request::UpdatePolicy { item, policy } => self.update_policy(session, item, policy),
             Request::UpdateItem {
                 item,
@@ -998,7 +1102,11 @@ async fn notify(enabled: bool, title: String, body: String) {
 }
 
 /// Run the daemon until Ctrl-C. Fails when another daemon uses the endpoint.
-pub async fn run(paths: Paths, vault_override: Option<PathBuf>) -> Result<()> {
+pub async fn run(
+    paths: Paths,
+    vault_override: Option<PathBuf>,
+    key_file: Option<PathBuf>,
+) -> Result<()> {
     std::fs::create_dir_all(&paths.config)?;
     std::fs::create_dir_all(&paths.data)?;
     let server = Server::bind(paths.endpoint().as_deref()).map_err(|e| {
@@ -1007,7 +1115,11 @@ pub async fn run(paths: Paths, vault_override: Option<PathBuf>) -> Result<()> {
         ))
     })?;
     let server = server.with_pairing_store(Arc::new(PairingFile::new(paths.pairing_file())));
-    let daemon = Arc::new(Daemon::new(paths, vault_override)?);
+    let mut daemon = Daemon::new(paths, vault_override)?;
+    if let Some(p) = key_file {
+        daemon = daemon.with_key_file(p);
+    }
+    let daemon = Arc::new(daemon);
     daemon.try_auto_unlock().await;
 
     let bg = Arc::clone(&daemon);

@@ -39,15 +39,17 @@ impl Engine {
                     ItemKind::Admin => self.secret_of(&item.id)?,
                     ItemKind::Derived { parent } => self.secret_of(&parent)?,
                 };
-                provider.revoke(&cred, &old).await
+                match provider.revoke(&cred, &old).await {
+                    // A 404 means "already gone" only when the host and the credential are
+                    // right. A wrong base URL also gives 404. Check the credential first.
+                    Err(WardenError::NotFound(_)) => confirm_gone(provider.as_ref(), &cred).await,
+                    Err(WardenError::Provider(m)) if m.starts_with("HTTP 404") => {
+                        confirm_gone(provider.as_ref(), &cred).await
+                    }
+                    other => other,
+                }
             }
             .await;
-            // A revoke of a token that is already gone (404) is done.
-            let res = match res {
-                Err(WardenError::NotFound(_)) => Ok(()),
-                Err(WardenError::Provider(m)) if m.starts_with("HTTP 404") => Ok(()),
-                other => other,
-            };
             match res {
                 Ok(()) => {
                     self.checkpoint("revoke_called")?;
@@ -90,4 +92,15 @@ impl Engine {
         }
         Ok(out)
     }
+}
+
+async fn confirm_gone(
+    provider: &dyn warden_core::Provider,
+    cred: &warden_core::SecretValue,
+) -> Result<()> {
+    provider.verify(cred).await.map(|_| ()).map_err(|e| {
+        WardenError::Provider(format!(
+            "revoke got 404 and the credential check failed: {e}"
+        ))
+    })
 }

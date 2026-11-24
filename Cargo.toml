@@ -11,6 +11,20 @@ members = [
     "crates/warden-coffee",
     "crates/aivory-warden",
     "crates/warden-native-host",
+    "apps/desktop/src-tauri",
+]
+# The Tauri app builds for minutes; build it with `-p aivory-warden-desktop` or `--workspace`.
+default-members = [
+    "crates/warden-core",
+    "crates/warden-vault",
+    "crates/warden-providers",
+    "crates/warden-sinks",
+    "crates/warden-engine",
+    "crates/warden-ipc",
+    "crates/warden-mcp",
+    "crates/warden-coffee",
+    "crates/aivory-warden",
+    "crates/warden-native-host",
 ]
 
 [workspace.package]

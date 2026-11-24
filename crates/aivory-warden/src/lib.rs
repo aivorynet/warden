@@ -9,6 +9,7 @@
 
 pub mod cli;
 pub mod daemon;
+pub mod desktop;
 pub mod duration;
 pub mod paths;
 pub mod service;

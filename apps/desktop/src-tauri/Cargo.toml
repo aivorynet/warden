@@ -1,0 +1,27 @@
+[package]
+name = "aivory-warden-desktop"
+description = "Aivory Warden desktop app: a front end to the background daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+aivory-warden = { path = "../../../crates/aivory-warden" }
+warden-core.workspace = true
+warden-ipc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tokio = { workspace = true, features = ["process", "time"] }
+chrono.workspace = true
+open = "5"
+
+[lints]
+workspace = true

@@ -236,7 +236,7 @@ export async function settings(root: HTMLElement): Promise<void> {
         h("span", { class: "disp mid" }, status),
         coffee.ticket ? h("span", { class: "mono small steel" }, `TICKET ${coffee.ticket}`) : null,
         h("p", { class: "lead small" }, "Warden is free and open source. One coffee a year stops the weekly note. Rotation works the same either way."),
-        cta("Buy a coffee", () => void openUrl(coffee.link || "https://aivory.net/coffee")),
+        cta("Buy a coffee", () => void openUrl(coffee.link || "https://buy.stripe.com/5kQbJ3csm21Xfz64DhdjO00")),
         coffee.price_label ? h("span", { class: "mono small steel" }, coffee.price_label.toUpperCase()) : null,
         field("RECEIPT CODE", receipt, "lg"),
         btn("Apply receipt", () => void applyReceipt()),

@@ -103,7 +103,7 @@ What we do not promise:
 
 ## Coffee
 
-Warden is free and MIT licensed. There is no account, no trial and no locked feature. If it saves you time, buy the developer a coffee at <https://aivory.net/coffee>. Pay what you want; 5 EUR is the suggestion.
+Warden is free and MIT licensed. There is no account, no trial and no locked feature. If it saves you time, buy the developer a coffee at <https://buy.stripe.com/5kQbJ3csm21Xfz64DhdjO00>. Pay what you want; 5 EUR is the suggestion.
 
 Until you have paid once in the current year, Warden shows one short note per week, in the desktop app and on stderr of the CLI when it runs in a terminal. Paste the receipt code in Settings or run `awd coffee --receipt <code>`, and the note stops for that year. Warden checks the receipt offline. You can also turn the note off with `awd settings set coffee-reminder off`. The note never appears in `mcp` or native host mode, and it never blocks a rotation.
 

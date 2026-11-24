@@ -18,11 +18,11 @@ pub use pledge::*;
 /// Prefix of a receipt code.
 pub const RECEIPT_PREFIX: &str = "aivw-receipt-";
 /// Link where the user pays for a coffee.
-pub const COFFEE_URL: &str = "https://aivory.net/coffee";
+pub const COFFEE_URL: &str = "https://buy.stripe.com/5kQbJ3csm21Xfz64DhdjO00";
 /// Title of the reminder note.
 pub const NOTE_TITLE: &str = "Aivory Warden is free. A coffee keeps it that way.";
 /// Body of the reminder note.
-pub const NOTE_BODY: &str = "If Warden saves you time, buy the developer a coffee: https://aivory.net/coffee. Paste the receipt code in Settings or run `awd coffee --receipt <code>` to stop this note for the year. Turn the note off in Settings.";
+pub const NOTE_BODY: &str = "If Warden saves you time, buy the developer a coffee: https://buy.stripe.com/5kQbJ3csm21Xfz64DhdjO00. Paste the receipt code in Settings or run `awd coffee --receipt <code>` to stop this note for the year. Turn the note off in Settings.";
 /// Minimum time between two notes.
 pub const NOTE_INTERVAL_DAYS: i64 = 7;
 

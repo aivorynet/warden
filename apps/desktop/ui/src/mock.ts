@@ -60,7 +60,7 @@ const sampleStatus: Record<string, Pick<Summary, "status" | "last_error" | "next
 };
 
 const status = (): Status => ({ version: "2026.11.0", locked: false, device_id: "0193f2c4-8e1a-7b3d-9a52-4c6e1f0d0014", item_count: items.length, inbox_count: inbox.length });
-const coffee = (): Coffee => ({ paid_year: paidYear, reminder_due: false, link: "https://aivory.net/coffee", pledged, ticket: "AIVW-2026-6909", price_label: "pay what you want, 5 EUR suggested" });
+const coffee = (): Coffee => ({ paid_year: paidYear, reminder_due: false, link: "https://buy.stripe.com/5kQbJ3csm21Xfz64DhdjO00", pledged, ticket: "AIVW-2026-6909", price_label: "pay what you want, 5 EUR suggested" });
 const summary = (i: Item): Summary => ({
   id: i.id, name: i.name, provider: i.provider.kind, kind: i.kind, expires_at: i.expires_at,
   next_rotation: i.policy.auto_rotate ? iso(nextOf[i.id] ?? 30 * DAY) : null, sink_count: i.sinks.length, auto_rotate: i.policy.auto_rotate,

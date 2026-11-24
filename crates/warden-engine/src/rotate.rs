@@ -23,6 +23,22 @@ impl Drop for BusyGuard<'_> {
     }
 }
 
+/// `true` when the error proves that the provider did not issue a token.
+fn proves_not_issued(e: &WardenError) -> bool {
+    match e {
+        WardenError::ProviderAuth(_)
+        | WardenError::ProviderRateLimited { .. }
+        | WardenError::ProviderUnsupported(_)
+        | WardenError::Config(_)
+        | WardenError::NotFound(_)
+        | WardenError::Locked
+        | WardenError::Vault(_) => true,
+        // A 4xx validation error. Timeouts and 5xx ("retryable: ...") are ambiguous.
+        WardenError::Provider(m) => m.starts_with("HTTP 4"),
+        _ => false,
+    }
+}
+
 pub(crate) fn delta(d: Duration) -> TimeDelta {
     TimeDelta::from_std(d).unwrap_or(TimeDelta::MAX)
 }
@@ -155,8 +171,12 @@ impl Engine {
             match self.issue(&item, provider.as_ref(), entry).await {
                 Ok(issued) => entry.issued = Some(issued),
                 Err(e) => {
-                    // Nothing changed at the provider. Drop the intent.
-                    self.journal.remove(entry.id)?;
+                    // Drop the intent only when the error proves "not issued". A timeout or
+                    // a 5xx can follow an action at the provider: keep the intent and let
+                    // `recover` verify.
+                    if proves_not_issued(&e) {
+                        self.journal.remove(entry.id)?;
+                    }
                     return Err(e);
                 }
             }
@@ -416,9 +436,12 @@ impl Engine {
     /// - Queued revoke: left for [`Engine::run_pending_revokes`].
     pub async fn recover(&self) -> Result<Vec<RotationReport>> {
         let mut reports = Vec::new();
-        for mut entry in self.journal.load_all()? {
+        for stale in self.journal.load_all()? {
+            let mut entry = stale;
             let Ok(item) = self.item(&entry.item_id) else {
-                self.journal.remove(entry.id)?;
+                if let Err(e) = self.journal.remove(entry.id) {
+                    tracing::warn!("journal remove failed: {e}");
+                }
                 continue;
             };
             if let Some(r) = &entry.revoke {
@@ -426,12 +449,25 @@ impl Engine {
                 continue;
             }
             if entry.issued.is_none() {
-                self.recover_intent(&entry, &item).await?;
+                if let Err(e) = self.recover_intent(&entry, &item).await {
+                    tracing::warn!("recovery of intent of {} failed: {e}", item.id);
+                }
                 continue;
             }
             let Ok(_busy) = self.busy(item.id) else {
                 continue;
             };
+            // Reload under the guard: skip an entry that is gone or that changed.
+            match self.journal.load(entry.id) {
+                Ok(Some(fresh)) if fresh.revoke.is_none() && fresh.issued.is_some() => {
+                    entry = fresh;
+                }
+                Ok(_) => continue,
+                Err(e) => {
+                    tracing::warn!("journal reload of {} failed: {e}", item.id);
+                    continue;
+                }
+            }
             match self.drive_guarded(&mut entry).await {
                 Ok(r) => reports.push(r),
                 Err(e) => tracing::warn!("recovery of {} failed: {e}", item.id),

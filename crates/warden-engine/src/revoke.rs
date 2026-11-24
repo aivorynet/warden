@@ -42,6 +42,12 @@ impl Engine {
                 provider.revoke(&cred, &old).await
             }
             .await;
+            // A revoke of a token that is already gone (404) is done.
+            let res = match res {
+                Err(WardenError::NotFound(_)) => Ok(()),
+                Err(WardenError::Provider(m)) if m.starts_with("HTTP 404") => Ok(()),
+                other => other,
+            };
             match res {
                 Ok(()) => {
                     self.checkpoint("revoke_called")?;

@@ -103,6 +103,15 @@ impl Journal {
         }
     }
 
+    /// Load one entry by id. `None` when the entry is gone or does not parse.
+    pub fn load(&self, id: Uuid) -> Result<Option<JournalEntry>> {
+        match fs::read(self.path(id)) {
+            Ok(b) => Ok(serde_json::from_slice(&b).ok()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// Load all entries, oldest first. Files that do not parse are skipped.
     pub fn load_all(&self) -> Result<Vec<JournalEntry>> {
         let mut out = Vec::new();

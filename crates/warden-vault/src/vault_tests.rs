@@ -243,3 +243,114 @@ proptest! {
         prop_assert_eq!(va.audit(), vr.audit());
     }
 }
+
+// ---------- review fixes ----------
+
+#[test]
+fn second_writer_of_one_device_cannot_replace_an_op() {
+    let e = env();
+    let (mut a, sk) = create(&e);
+    let mut b = Vault::open(&e.dir, "pw", &sk, &e.local).unwrap();
+    let (ia, ib) = (ItemId::new(), ItemId::new());
+    a.put(item_with(ia, "first"), secrets("1")).unwrap();
+    let err = b.put(item_with(ib, "second"), secrets("2")).unwrap_err();
+    assert!(err.to_string().contains("exists already"), "{err}");
+    let c = Vault::open(&e.dir, "pw", &sk, &e.local).unwrap();
+    assert_eq!(c.secret(&ia, "token").unwrap().expose(), "1");
+    assert!(c.get(&ib).is_none());
+    // After a reload the second writer continues the chain.
+    b.reload().unwrap();
+    b.put(item_with(ib, "second"), secrets("2")).unwrap();
+    assert_eq!(op_files(&e.dir).len(), 2);
+}
+
+#[test]
+fn publish_new_never_replaces() {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path().join("1.op");
+    crate::fsutil::publish_new(&p, b"one", false).unwrap();
+    let err = crate::fsutil::publish_new(&p, b"two", false).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+    assert_eq!(fs::read(&p).unwrap(), b"one");
+    assert_eq!(fs::read_dir(d.path()).unwrap().count(), 1, "temp file left");
+}
+
+#[test]
+fn offline_join_on_two_devices_keeps_both_and_stray_dirs_are_skipped() {
+    let e = env();
+    let (mut a, sk) = create(&e);
+    let header = e.dir.join("header.json");
+    let h0 = fs::read(&header).unwrap();
+    let mut b = Vault::join(&e.dir, "pw", &sk, "phone", &e._t.path().join("local-b")).unwrap();
+    // Device c joins offline from the old header: the registry entry of b is lost.
+    fs::write(&header, &h0).unwrap();
+    let mut c = Vault::join(&e.dir, "pw", &sk, "tablet", &e._t.path().join("local-c")).unwrap();
+    assert!(c.devices().iter().all(|d| d.name != "phone"));
+    let (ib, ic) = (ItemId::new(), ItemId::new());
+    // b writes: its reload repairs the registry (union by device id).
+    b.put(item_with(ib, "from-b"), secrets("b")).unwrap();
+    c.put(item_with(ic, "from-c"), secrets("c")).unwrap();
+    c.reload().unwrap();
+    a.reload().unwrap();
+    assert_eq!(a.devices().len(), 3);
+    assert_eq!(a.secret(&ib, "token").unwrap().expose(), "b");
+    assert_eq!(a.secret(&ic, "token").unwrap().expose(), "c");
+    // A stray directory and ops of an unregistered device do not break the load.
+    fs::create_dir_all(e.dir.join("ops").join("not-a-uuid")).unwrap();
+    fs::create_dir_all(e.dir.join("ops").join(DeviceId::new().to_string())).unwrap();
+    a.reload().unwrap();
+    assert_eq!(a.items().len(), 2);
+}
+
+#[test]
+fn device_that_lost_its_entry_repairs_it_on_open() {
+    let e = env();
+    let (_a, sk) = create(&e);
+    let header = e.dir.join("header.json");
+    let h0 = fs::read(&header).unwrap();
+    let b_local = e._t.path().join("local-b");
+    let _b = Vault::join(&e.dir, "pw", &sk, "phone", &b_local).unwrap();
+    fs::write(&header, &h0).unwrap(); // sync conflict: the join of b is lost
+    let b = Vault::open(&e.dir, "pw", &sk, &b_local).unwrap();
+    assert!(b.devices().iter().any(|d| d.name == "phone"));
+}
+
+#[test]
+fn version_1_header_is_read_and_migrated_on_unlock() {
+    let e = env();
+    let (v, sk) = create(&e);
+    let mut h = read_header(&e.dir).unwrap();
+    assert_eq!(h.version, 2);
+    let kek = derive_kek(b"pw", &sk, &h.salt.0, &h.kdf).unwrap();
+    h.version = 1;
+    let (n, c) = seal(&kek, &wrap_aad(&h), &*v.export_vault_key()).unwrap();
+    h.wrapped_key = Sealed {
+        nonce: Hex(n.to_vec()),
+        ct: Hex(c),
+    };
+    write_header(&e.dir, &h).unwrap();
+    assert_eq!(read_header(&e.dir).unwrap().version, 1);
+    Vault::open(&e.dir, "pw", &sk, &e.local).unwrap();
+    assert_eq!(read_header(&e.dir).unwrap().version, 2);
+    Vault::open(&e.dir, "pw", &sk, &e.local).unwrap();
+}
+
+#[test]
+fn header_kdf_parameters_are_bound_and_capped() {
+    let e = env();
+    let (_v, sk) = create(&e);
+    let mut h = read_header(&e.dir).unwrap();
+    // A tampered kdf cost cannot unwrap the key.
+    let mut t = h.clone();
+    t.kdf.t += 1;
+    assert!(unlock(&t, "pw", &sk).is_err());
+    // The v2 AAD differs from the v1 AAD and covers salt and kdf.
+    let mut s = h.clone();
+    s.salt.0[0] ^= 1;
+    assert_ne!(wrap_aad(&h), wrap_aad(&s));
+    // A header that asks for more than 1 GiB is refused before Argon2 runs.
+    h.kdf.m_kib = 2 * 1024 * 1024;
+    write_header(&e.dir, &h).unwrap();
+    let err = Vault::open(&e.dir, "pw", &sk, &e.local).unwrap_err();
+    assert!(err.to_string().contains("out of range"), "{err}");
+}

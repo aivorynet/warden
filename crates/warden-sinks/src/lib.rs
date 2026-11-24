@@ -13,6 +13,9 @@ mod envvar;
 mod file;
 mod ssh;
 #[cfg(windows)]
+#[allow(unsafe_code)]
+mod winacl;
+#[cfg(windows)]
 mod winenv;
 
 pub use atomic::atomic_write;

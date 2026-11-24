@@ -94,16 +94,23 @@ impl Engine {
         let now = self.now();
         rep.revokes = self.run_pending_revokes().await?;
         // Retry in-flight rotations whose backoff ended.
-        for mut entry in self.journal.load_all()? {
+        for stale in self.journal.load_all()? {
+            if stale.revoke.is_some() || stale.issued.is_none() {
+                continue;
+            }
+            if stale.next_attempt.is_some_and(|t| t > now) {
+                continue;
+            }
+            let Ok(_busy) = self.busy(stale.item_id) else {
+                continue;
+            };
+            // The entry can change or go away while this loop waits: reload under the guard.
+            let Some(mut entry) = self.journal.load(stale.id)? else {
+                continue;
+            };
             if entry.revoke.is_some() || entry.issued.is_none() {
                 continue;
             }
-            if entry.next_attempt.is_some_and(|t| t > now) {
-                continue;
-            }
-            let Ok(_busy) = self.busy(entry.item_id) else {
-                continue;
-            };
             match self.drive_guarded(&mut entry).await {
                 Ok(_) => rep.rotated.push(entry.item_id),
                 Err(_) => rep.failed.push(entry.item_id),

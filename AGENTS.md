@@ -34,7 +34,7 @@ Every change passes these gates before you report it as done.
 | Licenses | `cargo deny check` (when `cargo-deny` is installed) |
 
 - Fix every warning.
-- The workspace lints deny `unsafe_code`. The per-OS IPC module is the only exception.
+- The workspace lints deny `unsafe_code`. Only these Windows FFI modules may allow it, each with SAFETY comments: `warden-ipc/src/os/windows.rs` (pipe DACL, SID check), `warden-sinks/src/broadcast.rs` (WM_SETTINGCHANGE), `warden-sinks/src/winacl.rs` (DACL copy). Add no other.
 - Write rustdoc on every public item.
 
 ## Secrets

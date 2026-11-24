@@ -128,17 +128,6 @@ impl SshSink {
     }
 
     async fn write_inner(&self, sftp: &SftpSession, value: &SecretValue) -> Result<()> {
-        let old = self.read_text(sftp).await?;
-        let new = self.editor.edit(&old, value)?;
-        if new == old {
-            return Ok(());
-        }
-        let mode = sftp
-            .metadata(self.remote_path.clone())
-            .await
-            .ok()
-            .and_then(|m| m.permissions)
-            .map(|p| p & 0o7777);
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.subsec_nanos())
@@ -148,14 +137,43 @@ impl SshSink {
             self.remote_path,
             std::process::id()
         );
-        let result = self.put_and_swap(sftp, &tmp, new.as_bytes(), mode).await;
+        // The timeout covers only the steps that change nothing at the target.
+        let prepared = tokio::time::timeout(TIMEOUT, async {
+            let old = self.read_text(sftp).await?;
+            let new = self.editor.edit(&old, value)?;
+            if new == old {
+                return Ok(false);
+            }
+            let mode = sftp
+                .metadata(self.remote_path.clone())
+                .await
+                .ok()
+                .and_then(|m| m.permissions)
+                .map(|p| p & 0o7777);
+            self.put_tmp(sftp, &tmp, new.as_bytes(), mode).await?;
+            Ok(true)
+        })
+        .await
+        .map_err(|_| sink_err("ssh write timed out"))
+        .and_then(|r| r);
+        match prepared {
+            Ok(true) => {}
+            Ok(false) => return Ok(()),
+            Err(e) => {
+                let _ = sftp.remove_file(tmp).await;
+                return Err(e);
+            }
+        }
+        // The swap has no outer timeout: a cancel between the two renames would leave the
+        // target missing. Every SFTP request has its own timeout, so the swap ends.
+        let result = self.swap(sftp, &tmp).await;
         if result.is_err() {
             let _ = sftp.remove_file(tmp).await;
         }
         result
     }
 
-    async fn put_and_swap(
+    async fn put_tmp(
         &self,
         sftp: &SftpSession,
         tmp: &str,
@@ -195,16 +213,29 @@ impl SshSink {
         f.shutdown()
             .await
             .map_err(|err| sink_err(format!("remote close failed: {err}")))?;
-        // SFTP rename does not replace an existing file. Move the old file aside first.
+        Ok(())
+    }
+
+    /// Replace the target with the temp file. SFTP rename does not replace an existing file,
+    /// so the old file moves aside first and comes back when the second rename fails.
+    async fn swap(&self, sftp: &SftpSession, tmp: &str) -> Result<()> {
+        let e = |err: russh_sftp::client::error::Error| {
+            sink_err(format!("remote rename failed: {err}"))
+        };
         let backup = format!("{tmp}.old");
         sftp.rename(self.remote_path.clone(), backup.clone())
             .await
-            .map_err(e("rename"))?;
+            .map_err(e)?;
         if let Err(err) = sftp.rename(tmp.to_string(), self.remote_path.clone()).await {
-            let _ = sftp.rename(backup, self.remote_path.clone()).await;
-            return Err(e("rename")(err));
+            if let Err(rb) = sftp.rename(backup.clone(), self.remote_path.clone()).await {
+                tracing::error!("ssh sink: rollback failed, the old file is at {backup}: {rb}");
+            }
+            return Err(e(err));
         }
-        let _ = sftp.remove_file(backup).await;
+        if let Err(err) = sftp.remove_file(backup.clone()).await {
+            // The backup holds the old secret.
+            tracing::warn!("ssh sink: cannot remove the old file {backup}: {err}");
+        }
         Ok(())
     }
 }
@@ -212,18 +243,15 @@ impl SshSink {
 #[async_trait]
 impl Sink for SshSink {
     async fn write(&self, value: &SecretValue) -> Result<()> {
-        let run = async {
-            let (handle, sftp) = self.connect().await?;
-            let r = self.write_inner(&sftp, value).await;
-            let _ = sftp.close().await;
-            let _ = handle
-                .disconnect(russh::Disconnect::ByApplication, "", "en")
-                .await;
-            r
-        };
-        tokio::time::timeout(TIMEOUT, run)
+        let (handle, sftp) = tokio::time::timeout(TIMEOUT, self.connect())
             .await
-            .map_err(|_| sink_err("ssh write timed out"))?
+            .map_err(|_| sink_err("ssh connect timed out"))??;
+        let r = self.write_inner(&sftp, value).await;
+        let _ = sftp.close().await;
+        let _ = handle
+            .disconnect(russh::Disconnect::ByApplication, "", "en")
+            .await;
+        r
     }
 
     async fn read_back_matches(&self, value: &SecretValue) -> Result<bool> {

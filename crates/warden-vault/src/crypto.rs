@@ -29,6 +29,13 @@ pub(crate) fn random<const N: usize>() -> [u8; N] {
     b
 }
 
+/// Return `N` random bytes in a buffer that zeroizes on drop.
+pub(crate) fn random_zeroizing<const N: usize>() -> Zeroizing<[u8; N]> {
+    let mut b = Zeroizing::new([0u8; N]);
+    rand::rng().fill_bytes(&mut *b);
+    b
+}
+
 /// Argon2id parameters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KdfParams {
@@ -67,9 +74,10 @@ pub struct SecretKey([u8; 16]);
 impl SecretKey {
     /// Generate a new random Secret Key.
     pub fn generate() -> Self {
-        let mut b: [u8; 16] = random();
-        b[0] &= 0x1F; // 125 bits: the format has 25 base32 characters
-        Self(b)
+        let mut k = Self([0u8; 16]);
+        rand::rng().fill_bytes(&mut k.0);
+        k.0[0] &= 0x1F; // 125 bits: the format has 25 base32 characters
+        k
     }
 
     /// Build a Secret Key from raw bytes. The top 3 bits must be zero.
@@ -110,28 +118,29 @@ impl fmt::Display for SecretKey {
 impl FromStr for SecretKey {
     type Err = WardenError;
     fn from_str(s: &str) -> Result<Self> {
-        let up: String = s
-            .chars()
-            .filter(|c| !c.is_whitespace() && *c != '-')
-            .map(|c| match c.to_ascii_uppercase() {
-                'O' => '0',
-                'I' | 'L' => '1',
-                o => o,
-            })
-            .collect();
+        let up: Zeroizing<String> = Zeroizing::new(
+            s.chars()
+                .filter(|c| !c.is_whitespace() && *c != '-')
+                .map(|c| match c.to_ascii_uppercase() {
+                    'O' => '0',
+                    'I' | 'L' => '1',
+                    o => o,
+                })
+                .collect(),
+        );
         let body = up
             .strip_prefix("A3")
             .ok_or_else(|| verr("secret key must start with A3"))?;
         if body.len() != 25 {
             return Err(verr("secret key must have 25 characters after A3"));
         }
-        let mut v: u128 = 0;
+        let mut v = Zeroizing::new(0u128);
         for c in body.bytes() {
             let d = ALPHABET
                 .iter()
                 .position(|a| *a == c)
                 .ok_or_else(|| verr("secret key has an invalid character"))?;
-            v = (v << 5) | d as u128;
+            *v = (*v << 5) | d as u128;
         }
         Ok(Self(v.to_be_bytes()))
     }

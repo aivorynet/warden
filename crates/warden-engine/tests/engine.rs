@@ -24,6 +24,9 @@ struct Inner {
     valid: HashMap<String, String>, // value -> provider token id
     calls: u32,
     limit: Option<Option<Duration>>,
+    /// Error text for `issue`, and whether the provider acts before it fails.
+    issue_fail: Option<(String, bool)>,
+    revoke_404: bool,
 }
 
 #[derive(Default)]
@@ -38,6 +41,12 @@ impl Fake {
     }
     fn calls(&self) -> u32 {
         self.0.lock().unwrap().calls
+    }
+    fn set_issue_fail(&self, f: Option<(&str, bool)>) {
+        self.0.lock().unwrap().issue_fail = f.map(|(m, a)| (m.to_owned(), a));
+    }
+    fn set_revoke_404(&self, on: bool) {
+        self.0.lock().unwrap().revoke_404 = on;
     }
     fn set_limit(&self, l: Option<Option<Duration>>) {
         self.0.lock().unwrap().limit = l;
@@ -62,6 +71,20 @@ impl FakeProvider {
             return Err(WardenError::ProviderAuth("dead credential".into()));
         }
         Ok(())
+    }
+    fn issue_checked(&self, cred: &SecretValue) -> Result<IssuedToken> {
+        self.enter(cred)?;
+        let fail = self.fake.0.lock().unwrap().issue_fail.clone();
+        let Some((msg, acted)) = fail else {
+            return Ok(self.issue());
+        };
+        if acted {
+            let _ = self.issue();
+            if self.class == RotationClass::AtomicSwap {
+                self.fake.0.lock().unwrap().valid.remove(cred.expose());
+            }
+        }
+        Err(WardenError::Provider(msg))
     }
     fn issue(&self) -> IssuedToken {
         let mut g = self.fake.0.lock().unwrap();
@@ -98,20 +121,21 @@ impl Provider for FakeProvider {
         })
     }
     async fn rotate_self(&self, cred: &SecretValue, req: &RotateRequest) -> Result<IssuedToken> {
-        self.enter(cred)?;
         assert!(req.token_name.starts_with("aivw_"));
-        let t = self.issue();
+        let t = self.issue_checked(cred)?;
         if self.class == RotationClass::AtomicSwap {
             self.fake.0.lock().unwrap().valid.remove(cred.expose());
         }
         Ok(t)
     }
     async fn create_derived(&self, admin: &SecretValue, _: &CreateRequest) -> Result<IssuedToken> {
-        self.enter(admin)?;
-        Ok(self.issue())
+        self.issue_checked(admin)
     }
     async fn revoke(&self, admin: &SecretValue, id: &str) -> Result<()> {
         self.enter(admin)?;
+        if self.fake.0.lock().unwrap().revoke_404 {
+            return Err(WardenError::Provider("HTTP 404: no such token".into()));
+        }
         self.fake.0.lock().unwrap().valid.retain(|_, v| v != id);
         Ok(())
     }
@@ -842,4 +866,79 @@ async fn mcp_atomic_swap_needs_confirmation() {
         RotationRequestOutcome::Rotated(_)
     ));
     e.assert_sound(id);
+}
+
+// ---------- review fixes ----------
+
+#[tokio::test]
+async fn ambiguous_issue_error_keeps_the_intent_and_recover_verifies() {
+    let e = Env::new();
+    let id = e.admin("a", true, 1, policy(0));
+    let eng = e.engine();
+    // A timeout after the provider acted: the old credential is dead, the new one is lost.
+    e.fake
+        .set_issue_fail(Some(("retryable: request timed out", true)));
+    assert!(eng.rotate(id).await.is_err());
+    assert_eq!(e.journal_files(), 1, "intent must stay for recover");
+    assert!(!e.fake.is_valid(&e.vault_value(id)));
+    let mut rx = eng.subscribe();
+    drop(eng);
+    let eng2 = e.engine();
+    let mut rx2 = eng2.subscribe();
+    eng2.recover().await.unwrap();
+    assert_eq!(e.journal_files(), 0);
+    let mut failed = false;
+    while let Ok(ev) = rx2.try_recv() {
+        failed |= matches!(ev, EngineEvent::Failed { .. });
+    }
+    assert!(failed, "recover reports the dead credential");
+    assert!(rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn validation_error_drops_the_intent() {
+    let e = Env::new();
+    let id = e.admin("a", false, 1, policy(0));
+    let eng = e.engine();
+    e.fake.set_issue_fail(Some(("HTTP 400: bad scope", false)));
+    assert!(eng.rotate(id).await.is_err());
+    assert_eq!(e.journal_files(), 0);
+}
+
+#[tokio::test]
+async fn recover_continues_after_a_failing_entry() {
+    let e = Env::new();
+    let a = e.admin("a", true, 1, policy(0));
+    let b = e.admin("b", false, 1, policy(0));
+    let eng = e.engine();
+    eng.inject_fault("intent");
+    assert!(eng.rotate(a).await.is_err());
+    eng.inject_fault("issued");
+    assert!(eng.rotate(b).await.is_err());
+    assert_eq!(e.journal_files(), 2);
+    // Entry A now fails in recovery: its secret is gone.
+    let item = e.vault_item(a);
+    e.vault
+        .lock()
+        .unwrap()
+        .put(item, std::collections::BTreeMap::new())
+        .unwrap();
+    drop(eng);
+    let eng2 = e.engine();
+    let reps = eng2.recover().await.unwrap();
+    assert_eq!(reps.len(), 1, "entry of b is recovered");
+    assert_eq!(reps[0].item_id, b);
+}
+
+#[tokio::test]
+async fn revoke_of_an_already_revoked_token_is_done() {
+    let e = Env::new();
+    let id = e.admin("a", false, 1, policy(3600));
+    let eng = e.engine();
+    eng.rotate(id).await.unwrap();
+    e.clock.advance(CDuration::hours(2));
+    e.fake.set_revoke_404(true);
+    let rv = eng.run_pending_revokes().await.unwrap();
+    assert!(rv.len() == 1 && rv[0].done, "{rv:?}");
+    assert_eq!(e.journal_files(), 0);
 }

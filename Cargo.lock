@@ -6894,6 +6894,7 @@ dependencies = [
  "warden-core",
  "warden-providers",
  "warden-vault",
+ "zeroize",
 ]
 
 [[package]]
@@ -7001,6 +7002,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+ "tracing",
  "warden-core",
  "zeroize",
 ]

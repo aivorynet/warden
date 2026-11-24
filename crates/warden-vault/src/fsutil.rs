@@ -5,8 +5,38 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
 
+/// Take an exclusive advisory lock on `path` (created when needed), across processes.
+/// The lock ends when the returned file drops.
+pub fn lock_exclusive(path: &Path) -> io::Result<fs::File> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let f = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)?;
+    f.lock()?;
+    Ok(f)
+}
+
 /// Write `data` to `path` atomically. The file has mode 0600 on Unix when `private` is set.
 pub fn atomic_write(path: &Path, data: &[u8], private: bool) -> io::Result<()> {
+    write_atomic(path, data, private, false)
+}
+
+/// Like [`atomic_write`], but never replaces a file. Fails with `AlreadyExists` when `path`
+/// exists, also when another writer creates it at the same time.
+///
+/// The data goes to a temp file first and a hard link publishes it, so a reader never sees a
+/// partial file. When the file system has no hard links, the file is created with
+/// `create_new` instead.
+pub fn publish_new(path: &Path, data: &[u8], private: bool) -> io::Result<()> {
+    write_atomic(path, data, private, true)
+}
+
+fn write_atomic(path: &Path, data: &[u8], private: bool, no_replace: bool) -> io::Result<()> {
     let dir = path
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no parent"))?;
@@ -30,7 +60,28 @@ pub fn atomic_write(path: &Path, data: &[u8], private: bool) -> io::Result<()> {
         f.write_all(data)?;
         f.sync_all()?;
         drop(f);
-        fs::rename(&tmp, path)
+        if no_replace {
+            match fs::hard_link(&tmp, path) {
+                Ok(()) => fs::remove_file(&tmp),
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Err(e),
+                Err(_) => {
+                    // No hard links here: claim the name with `create_new`.
+                    let mut o = OpenOptions::new();
+                    o.write(true).create_new(true);
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::OpenOptionsExt;
+                        o.mode(if private { 0o600 } else { 0o644 });
+                    }
+                    let mut f = o.open(path)?;
+                    f.write_all(data)?;
+                    f.sync_all()?;
+                    fs::remove_file(&tmp)
+                }
+            }
+        } else {
+            fs::rename(&tmp, path)
+        }
     })();
     if result.is_err() {
         let _ = fs::remove_file(&tmp);

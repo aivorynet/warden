@@ -200,8 +200,8 @@ impl Engine {
         self.with_vault(|v| v.secret(id, TOKEN_SECRET))
     }
 
-    pub(crate) fn vault_key(&self) -> [u8; 32] {
-        *lock(&self.vault).export_vault_key()
+    pub(crate) fn vault_key(&self) -> zeroize::Zeroizing<[u8; 32]> {
+        lock(&self.vault).export_vault_key()
     }
 
     pub(crate) fn set_status(&self, id: ItemId, s: ItemStatus) {

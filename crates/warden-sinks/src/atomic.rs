@@ -47,6 +47,12 @@ pub(crate) fn atomic_write_with(
         }
         f.sync_all()?;
         drop(f);
+        // The temp file takes the folder ACL. Copy the DACL of the old file, so a tight
+        // ACL does not widen. Fail closed: a wider ACL on a secret file is worse.
+        #[cfg(windows)]
+        if old.is_some() {
+            crate::winacl::copy_dacl(&target, &tmp)?;
+        }
         before_rename(&tmp)?;
         fs::rename(&tmp, &target)
     })();
@@ -166,5 +172,40 @@ mod tests {
         atomic_write(&p, b"new").unwrap();
         assert_ne!(fs::metadata(&p).unwrap().file_attributes() & 0x2, 0);
         assert_eq!(fs::read(&p).unwrap(), b"new");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn dacl_is_preserved() {
+        fn acl(p: &Path) -> String {
+            let out = std::process::Command::new("icacls")
+                .arg(p)
+                .output()
+                .unwrap();
+            // Drop the path from the first line and the summary line.
+            String::from_utf8_lossy(&out.stdout)
+                .replace(p.to_str().unwrap(), "")
+                .lines()
+                .filter(|l| !l.contains("Successfully processed"))
+                .map(str::trim)
+                .collect::<Vec<_>>()
+                .join("|")
+        }
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("f.env");
+        fs::write(&p, b"old").unwrap();
+        let user = std::env::var("USERNAME").unwrap();
+        let st = std::process::Command::new("icacls")
+            .arg(&p)
+            .args(["/inheritance:r", "/grant:r"])
+            .arg(format!("{user}:F"))
+            .output()
+            .unwrap();
+        assert!(st.status.success(), "{st:?}");
+        let before = acl(&p);
+        assert!(!before.contains(r"BUILTIN\Users"), "{before}");
+        atomic_write(&p, b"new").unwrap();
+        assert_eq!(fs::read(&p).unwrap(), b"new");
+        assert_eq!(acl(&p), before);
     }
 }

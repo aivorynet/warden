@@ -1,0 +1,10 @@
+name = "aivory-coffee-receipt"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+# Secrets (set with `wrangler secret put`, never store them here):
+#   STRIPE_SECRET_KEY     Stripe secret key (sk_live_... or sk_test_...)
+#   RECEIPT_SIGNING_KEY   Ed25519 private key, PKCS8 DER, base64
+
+# Route the page under aivory.net. Paul adds this after the zone is ready:
+# routes = [{ pattern = "aivory.net/coffee/receipt", zone_name = "aivory.net" }]

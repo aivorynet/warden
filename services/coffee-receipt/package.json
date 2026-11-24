@@ -1,0 +1,20 @@
+{
+  "name": "aivory-coffee-receipt",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker that turns a paid Stripe Checkout session into a signed Aivory Warden coffee receipt.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "gen-keys": "node scripts/gen-keys.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261123.1",
+    "typescript": "^5.6.3",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.0.0"
+  }
+}

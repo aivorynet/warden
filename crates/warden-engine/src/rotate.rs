@@ -532,7 +532,8 @@ impl Engine {
     ///
     /// - New token issued but not in the vault: store it.
     /// - Sinks not written: write them (forward, never restore).
-    /// - Intent only (`Overlap`): drop it. Nothing is in use.
+    /// - Intent only (`Overlap`): keep it and mark the item `Failed`. The provider may hold
+    ///   an orphan key. The next rotation resumes the intent and cleans it up.
     /// - Intent only (`AtomicSwap`): verify the vault value. Valid: drop the intent.
     ///   Invalid: emit `Failed` (the provider swapped the token before the journal write).
     /// - Queued revoke: left for [`Engine::run_pending_revokes`].
@@ -589,6 +590,19 @@ impl Engine {
                 }
                 return Ok(()); // keep the intent, try again on the next recover
             }
+        }
+        if entry.class == RotationClass::Overlap {
+            // The reply of a create call may be lost. Keep the intent (with its start time),
+            // so the provider can find and delete an orphan key on the next rotation.
+            self.set_status(
+                item.id,
+                ItemStatus::Failed {
+                    error: "rotation interrupted, retry pending".into(),
+                    attempts: entry.attempts + 1,
+                    next_retry: self.clock.now(),
+                },
+            );
+            return Ok(());
         }
         self.journal.remove(entry.id)
     }

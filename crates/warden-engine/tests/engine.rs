@@ -523,6 +523,10 @@ async fn crash_case(atomic: bool, derived: bool, point: &str) {
     let _ = before;
     let eng2 = e.engine();
     eng2.recover().await.unwrap();
+    if !atomic && point == "intent" {
+        // Recover keeps the Overlap intent. A manual rotation resumes it.
+        eng2.rotate(id).await.unwrap();
+    }
     for _ in 0..3 {
         e.clock.advance(CDuration::hours(2));
         eng2.run_pending_revokes().await.unwrap();
@@ -980,6 +984,28 @@ async fn recover_continues_after_a_failing_entry() {
     let reps = eng2.recover().await.unwrap();
     assert_eq!(reps.len(), 1, "entry of b is recovered");
     assert_eq!(reps[0].item_id, b);
+}
+
+#[tokio::test]
+async fn recover_keeps_overlap_intent_for_orphan_cleanup() {
+    let e = Env::new();
+    let id = e.admin("a", false, 1, policy(0));
+    let eng = e.engine();
+    eng.inject_fault("intent");
+    assert!(eng.rotate(id).await.is_err());
+    assert_eq!(e.journal_files(), 1);
+    drop(eng);
+    let eng2 = e.engine();
+    eng2.recover().await.unwrap();
+    assert_eq!(e.journal_files(), 1, "overlap intent is kept");
+    assert!(matches!(
+        eng2.status(&id),
+        ItemStatus::Failed { ref error, .. } if error == "rotation interrupted, retry pending"
+    ));
+    eng2.rotate(id).await.unwrap();
+    e.clock.advance(CDuration::hours(2));
+    eng2.run_pending_revokes().await.unwrap();
+    assert_eq!(e.journal_files(), 0);
 }
 
 #[tokio::test]

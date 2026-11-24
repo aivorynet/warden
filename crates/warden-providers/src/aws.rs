@@ -5,7 +5,7 @@
 
 use crate::http::{Http, cfg_loopback, cfg_str, check_name, text_capped};
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -33,6 +33,10 @@ pub struct AwsIam {
     iam_region: String,
     sts_region: String,
     user_name: Option<String>,
+    /// Hint from the engine: start of the open rotation intent.
+    intent_at: Option<DateTime<Utc>>,
+    /// Hint from the engine: id of the key that is in use now.
+    current_id: Option<String>,
 }
 
 /// Parsed credential.
@@ -168,6 +172,10 @@ impl AwsIam {
             iam_region,
             sts_region,
             user_name: cfg_str(c, "user_name"),
+            intent_at: cfg_str(c, "_warden_intent_at")
+                .and_then(|t| DateTime::parse_from_rfc3339(&t).ok())
+                .map(|t| t.with_timezone(&Utc)),
+            current_id: cfg_str(c, "_warden_current_id"),
         })
     }
 
@@ -242,26 +250,82 @@ impl AwsIam {
         }
     }
 
-    async fn list_keys(&self, creds: &Creds, user: &str) -> Result<Vec<String>> {
+    /// Keys of `user` with their creation time.
+    async fn list_keys_meta(
+        &self,
+        creds: &Creds,
+        user: &str,
+    ) -> Result<Vec<(String, Option<DateTime<Utc>>)>> {
         let xml = self
             .call("iam", creds, "ListAccessKeys", &[("UserName", user)])
             .await?;
         Ok(xml
             .split("<member>")
             .skip(1)
-            .filter_map(|m| tag(m, "AccessKeyId"))
+            .filter_map(|m| {
+                let id = tag(m, "AccessKeyId")?;
+                let at = tag(m, "CreateDate")
+                    .and_then(|d| DateTime::parse_from_rfc3339(&d).ok())
+                    .map(|d| d.with_timezone(&Utc));
+                Some((id, at))
+            })
             .collect())
+    }
+
+    async fn list_keys(&self, creds: &Creds, user: &str) -> Result<Vec<String>> {
+        Ok(self
+            .list_keys_meta(creds, user)
+            .await?
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect())
+    }
+
+    /// At the key limit, delete the orphan of a lost `CreateAccessKey` reply.
+    /// An orphan is not the current key, is not the signing key, and is not older than the
+    /// intent. Logs the key id only.
+    async fn clear_orphan(
+        &self,
+        creds: &Creds,
+        user: &str,
+        keys: &[(String, Option<DateTime<Utc>>)],
+    ) -> Result<()> {
+        let manual = || {
+            WardenError::Provider(format!(
+                "user already has {} access keys (limit {MAX_KEYS}) and none is a Warden                  orphan; delete one key in the AWS console or with `aws iam delete-access-key`",
+                keys.len()
+            ))
+        };
+        let (Some(intent_at), Some(current)) = (self.intent_at, &self.current_id) else {
+            return Err(manual());
+        };
+        let orphans: Vec<&str> = keys
+            .iter()
+            .filter(|(id, at)| {
+                id != current && *id != creds.access_key_id && at.is_some_and(|t| t >= intent_at)
+            })
+            .map(|(id, _)| id.as_str())
+            .collect();
+        let [orphan] = orphans.as_slice() else {
+            return Err(manual());
+        };
+        tracing::warn!(key_id = %orphan, "deleting orphan access key of a lost rotation");
+        self.call(
+            "iam",
+            creds,
+            "DeleteAccessKey",
+            &[("UserName", user), ("AccessKeyId", orphan)],
+        )
+        .await?;
+        Ok(())
     }
 
     /// Create a key for `user`, tag the user with the key id, return the issued token.
     async fn create_key(&self, creds: &Creds, user: &str, name: &str) -> Result<IssuedToken> {
         check_name(name)?;
-        let existing = self.list_keys(creds, user).await?;
+        let existing = self.list_keys_meta(creds, user).await?;
         if existing.len() >= MAX_KEYS {
-            return Err(WardenError::Provider(format!(
-                "user already has {} access keys (limit {MAX_KEYS}); delete one first",
-                existing.len()
-            )));
+            self.clear_orphan(creds, user, &existing).await?;
         }
         let xml = self
             .call("iam", creds, "CreateAccessKey", &[("UserName", user)])
@@ -419,6 +483,28 @@ mod tests {
     fn aws(s: &MockServer) -> AwsIam {
         AwsIam::from_config(&json!({"base_url": s.uri(), "user_name": "bob"})).unwrap()
     }
+    fn keys_at(items: &[(&str, &str)]) -> ResponseTemplate {
+        let m: String = items
+            .iter()
+            .map(|(i, d)| {
+                format!(
+                    "<member><AccessKeyId>{i}</AccessKeyId><CreateDate>{d}</CreateDate>                     </member>"
+                )
+            })
+            .collect();
+        ResponseTemplate::new(200).set_body_string(format!(
+            "<ListAccessKeysResponse><ListAccessKeysResult><AccessKeyMetadata>{m}             </AccessKeyMetadata></ListAccessKeysResult></ListAccessKeysResponse>"
+        ))
+    }
+    fn hinted(s: &MockServer) -> AwsIam {
+        AwsIam::from_config(&json!({
+            "base_url": s.uri(),
+            "user_name": "bob",
+            "_warden_intent_at": "2026-11-24T10:00:00Z",
+            "_warden_current_id": "AKIAOLD"
+        }))
+        .unwrap()
+    }
     fn identity() -> ResponseTemplate {
         ResponseTemplate::new(200).set_body_string(
             "<GetCallerIdentityResponse><GetCallerIdentityResult>\
@@ -499,7 +585,76 @@ mod tests {
             .rotate_self(&cred("A"), &rotate_req(None))
             .await
             .unwrap_err();
-        assert!(matches!(e, WardenError::Provider(m) if m.contains("limit 2")));
+        assert!(
+            matches!(e, WardenError::Provider(m) if m.contains("limit 2") && m.contains("delete one key"))
+        );
+    }
+
+    #[tokio::test]
+    async fn orphan_key_is_deleted_before_create() {
+        let s = MockServer::start().await;
+        mount(&s, "GetCallerIdentity", identity()).await;
+        mount(
+            &s,
+            "ListAccessKeys",
+            keys_at(&[
+                ("AKIAOLD", "2026-01-01T00:00:00Z"),
+                ("AKIAORPHAN", "2026-11-24T10:00:05Z"),
+            ]),
+        )
+        .await;
+        Mock::given(method("POST"))
+            .and(body_string_contains("Action=DeleteAccessKey"))
+            .and(body_string_contains("AccessKeyId=AKIAORPHAN"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("<ok/>"))
+            .expect(1)
+            .mount(&s)
+            .await;
+        mount(
+            &s,
+            "CreateAccessKey",
+            ResponseTemplate::new(200).set_body_string(
+                "<AccessKey><AccessKeyId>AKIANEW</AccessKeyId>                 <SecretAccessKey>s</SecretAccessKey></AccessKey>",
+            ),
+        )
+        .await;
+        mount(
+            &s,
+            "TagUser",
+            ResponseTemplate::new(200).set_body_string("<ok/>"),
+        )
+        .await;
+        let t = hinted(&s)
+            .rotate_self(&cred("AKIAOLD"), &rotate_req(Some("AKIAOLD")))
+            .await
+            .unwrap();
+        assert_eq!(t.provider_token_id, "AKIANEW");
+    }
+
+    #[tokio::test]
+    async fn two_keys_without_orphan_give_manual_step() {
+        let s = MockServer::start().await;
+        mount(&s, "GetCallerIdentity", identity()).await;
+        mount(
+            &s,
+            "ListAccessKeys",
+            keys_at(&[
+                ("AKIAOLD", "2026-01-01T00:00:00Z"),
+                ("AKIAOTHER", "2026-02-01T00:00:00Z"),
+            ]),
+        )
+        .await;
+        Mock::given(method("POST"))
+            .and(body_string_contains("Action=DeleteAccessKey"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&s)
+            .await;
+        let e = hinted(&s)
+            .rotate_self(&cred("AKIAOLD"), &rotate_req(Some("AKIAOLD")))
+            .await
+            .unwrap_err();
+        assert!(matches!(e, WardenError::Provider(m) if m.contains("delete one key")));
     }
 
     #[tokio::test]

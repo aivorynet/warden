@@ -116,6 +116,27 @@ impl Engine {
                 Err(_) => rep.failed.push(entry.item_id),
             }
         }
+        // Retry interrupted rotations without an issued token. `rotate` resumes the intent and
+        // first runs the provider checks (verify of the old credential, orphan key cleanup).
+        let intents: Vec<ItemId> = self
+            .journal
+            .load_all()?
+            .into_iter()
+            .filter(|e| e.revoke.is_none() && e.issued.is_none())
+            .filter(|e| e.next_attempt.is_none_or(|t| t <= now))
+            .map(|e| e.item_id)
+            .collect();
+        for id in intents {
+            let in_backoff = matches!(lock(&self.state).statuses.get(&id),
+                Some(ItemStatus::Failed { next_retry, .. }) if *next_retry > now);
+            if in_backoff {
+                continue;
+            }
+            match self.rotate(id).await {
+                Ok(_) => rep.rotated.push(id),
+                Err(_) => rep.failed.push(id),
+            }
+        }
         self.notify_expiring(now);
         for id in self.due_items(now) {
             let Ok(item) = self.item(&id) else { continue };

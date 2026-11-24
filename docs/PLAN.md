@@ -3,7 +3,7 @@
 ## Context
 Paul does not want to manage access tokens by hand. Aivory Warden is an open-source, cross-OS token manager. The user stores admin tokens (with end date) and the places that consume tokens (files, env vars, remote files over SSH). A background daemon then creates, rotates, revokes and updates all derived tokens on a schedule, and rotates the admin tokens too. Apps use tokens through an MCP endpoint without reading them. An Edge extension captures tokens from provider pages. A weekly coffee reminder runs until the user paid once in the current year.
 
-Architecture reviewed by Fable (advisor). Repo is empty: `C:\java\workspace\access-token-manager`.
+Architecture reviewed by Fable (advisor). Repo started empty.
 
 ## User decisions (fixed)
 - Name: **Aivory Warden**. Binary `aivory-warden`, CLI alias `awd`.
@@ -12,7 +12,7 @@ Architecture reviewed by Fable (advisor). Repo is empty: `C:\java\workspace\acce
 - Coffee: **signed receipt** (ed25519, offline check), weekly until paid this year.
 - UI: **native desktop app** (Tauri v2) + tray. No localhost web UI.
 - **Background daemon** with scheduler. Per-token policy: on/off, interval, lead time before end date. **Global default interval 30 days** (setting).
-- Aivory brand: dark base `#05010D` / navy `#0D1624`, cream `#FAF6EF`, IBM Plex Sans + JetBrains Mono, logo `C:\java\workspace\aivory-hugo\static\images\aivory.svg`. Warden gets its own product accent (chosen in the design step).
+- Aivory brand: dark base `#05010D` / navy `#0D1624`, cream `#FAF6EF`, IBM Plex Sans + JetBrains Mono, AIVory "AIV" logo. Warden gets its own product accent (chosen in the design step).
 
 ## Step 1 — Design (/design, first action after approval)
 Create a Design artifact from type `https://claude.ai/artifact/QKN21svewxgyPb6SYRqWnd` (title "Aivory Warden"), no design system. Artboards:
@@ -27,7 +27,7 @@ Create a Design artifact from type `https://claude.ai/artifact/QKN21svewxgyPb6SY
 The desktop frontend then implements these artboards.
 
 ## Architecture
-**Workspace** (copy conventions from `C:\java\workspace\code`: `Cargo.toml` resolver 3, edition 2024, calver, `unsafe_code` denied except the per-OS IPC module, gates fmt/clippy -D warnings/test/deny; `AGENTS.md`, `nextsession.txt`, `release-plz.toml`, `cliff.toml`, `deny.toml`, `.github/workflows/{ci,release}.yml`).
+**Workspace** (copy conventions from the AIVory Code repo: `Cargo.toml` resolver 3, edition 2024, calver, `unsafe_code` denied except the per-OS IPC module, gates fmt/clippy -D warnings/test/deny; `AGENTS.md`, `nextsession.txt`, `release-plz.toml`, `cliff.toml`, `deny.toml`, `.github/workflows/{ci,release}.yml`).
 
 | Crate | Responsibility |
 |---|---|
@@ -36,7 +36,7 @@ The desktop frontend then implements these artboards.
 | `crates/warden-providers` | `Provider` trait (class `Overlap` / `AtomicSwap`), providers |
 | `crates/warden-sinks` | `Sink` trait, sinks, atomic writes |
 | `crates/warden-engine` | Rotation state machine, intent journal, scheduler, rotator lease |
-| `crates/warden-ipc` | Unix socket / named pipe, peer checks, pairing tokens, protocol (pattern: `code/crates/aivoryd/src/endpoint/{unix,windows}.rs`) |
+| `crates/warden-ipc` | Unix socket / named pipe, peer checks, pairing tokens, protocol (pattern from the AIVory Code daemon endpoint) |
 | `crates/warden-mcp` | stdio MCP server (rmcp), proxies to daemon |
 | `crates/warden-coffee` | Receipt verify (embedded ed25519 pubkey), weekly cadence |
 | `crates/aivory-warden` (bin) | `daemon`, CLI verbs, `mcp`, `native-host`, `service install/uninstall` |

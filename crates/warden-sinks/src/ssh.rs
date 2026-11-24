@@ -1,12 +1,16 @@
 //! SSH remote file sink: SFTP read, pure edit, temp file, rename.
 //!
 //! Key authentication only. The server key must be in the `known_hosts` file
-//! (strict checking, no trust on first use).
+//! (strict checking, no trust on first use). Host certificates are rejected.
+//!
+//! Dependencies: `russh` 0.65 and `russh-sftp` 4 with the `ring` backend (no aws-lc).
+//! The `rsa` feature is off, which removes RUSTSEC-2023-0071 (Marvin attack).
+//! Ed25519 and ECDSA keys work. RSA keys do not.
 
 use crate::{Editor, sink_err};
 use async_trait::async_trait;
 use russh::client::{self, AuthResult, Handle};
-use russh::keys::{PrivateKeyWithHashAlg, PublicKey, check_known_hosts_path, load_secret_key};
+use russh::keys::{PrivateKeyWithHashAlg, check_known_hosts_path, load_secret_key};
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::{FileAttributes, OpenFlags};
 use std::path::PathBuf;
@@ -40,8 +44,12 @@ impl client::Handler for Strict {
 
     async fn check_server_key(
         &mut self,
-        key: &PublicKey,
+        key: &russh::keys::PublicKeyOrCertificate,
     ) -> std::result::Result<bool, Self::Error> {
+        // Only plain host keys match known_hosts. Host certificates are rejected.
+        let russh::keys::PublicKeyOrCertificate::PublicKey { key, .. } = key else {
+            return Ok(false);
+        };
         // Any error (no entry, changed key, unreadable file) rejects the server.
         Ok(check_known_hosts_path(&self.host, self.port, key, &self.known_hosts).unwrap_or(false))
     }

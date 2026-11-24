@@ -5,6 +5,13 @@ compatibility_date = "2025-09-01"
 # Secrets (set with `wrangler secret put`, never store them here):
 #   STRIPE_SECRET_KEY     Stripe secret key (sk_live_... or sk_test_...)
 #   RECEIPT_SIGNING_KEY   Ed25519 private key, PKCS8 DER, base64
+#   STRIPE_WEBHOOK_SECRET Stripe webhook signing secret (whsec_...)
+
+# KV namespace for claims. Create it, then paste the id and remove the comments:
+#   npx wrangler kv namespace create CLAIMS
+# [[kv_namespaces]]
+# binding = "CLAIMS"
+# id = "REPLACE_WITH_KV_NAMESPACE_ID"
 
 # Route the page under aivory.net. Paul adds this after the zone is ready:
-# routes = [{ pattern = "aivory.net/coffee/receipt", zone_name = "aivory.net" }]
+# routes = [{ pattern = "aivory.net/coffee/*", zone_name = "aivory.net" }]

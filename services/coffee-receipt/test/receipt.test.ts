@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createPublicKey, generateKeyPairSync, verify } from "node:crypto";
+import { createHmac, createPublicKey, generateKeyPairSync, verify } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,8 +41,27 @@ function stripeFetch(session: Record<string, unknown> | null, status = 200): typ
   }) as typeof fetch;
 }
 
-function envFor(pkcs8: string): Env {
-  return { STRIPE_SECRET_KEY: "sk_test_mock", RECEIPT_SIGNING_KEY: pkcs8 };
+class MemoryKv {
+  store = new Map<string, string>();
+  puts: { key: string; opts?: { expirationTtl?: number } }[] = [];
+  async get(key: string) {
+    return this.store.get(key) ?? null;
+  }
+  async put(key: string, value: string, opts?: { expirationTtl?: number }) {
+    this.puts.push({ key, opts });
+    this.store.set(key, value);
+  }
+}
+
+const WHSEC = "whsec_test_secret";
+
+function envFor(pkcs8: string, kv: MemoryKv = new MemoryKv()): Env {
+  return {
+    STRIPE_SECRET_KEY: "sk_test_mock",
+    RECEIPT_SIGNING_KEY: pkcs8,
+    STRIPE_WEBHOOK_SECRET: WHSEC,
+    CLAIMS: kv as unknown as KVNamespace,
+  };
 }
 
 describe("GET /coffee/receipt", () => {
@@ -134,5 +153,148 @@ describe("test/fixture-receipt.json", () => {
     const raw = Buffer.from(fixture.public_key_hex, "hex");
     expect(raw.length).toBe(32);
     expect(verifyCode(fixture.code, raw).ok).toBe(true);
+  });
+});
+
+const CLAIM = "aivw-c-0123456789abcdef0123456789abcdef";
+const NOW_MS = Date.UTC(2026, 10, 24, 10, 0, 0);
+const NOW_S = Math.floor(NOW_MS / 1000);
+
+function sign(body: string, t: number, secret = WHSEC): string {
+  return `t=${t},v1=${createHmac("sha256", secret).update(`${t}.${body}`).digest("hex")}`;
+}
+
+function event(over: Record<string, unknown> = {}, type = "checkout.session.completed") {
+  return {
+    type,
+    data: {
+      object: {
+        id: "cs_live_hook1",
+        payment_status: "paid",
+        client_reference_id: CLAIM,
+        created: Date.UTC(2026, 10, 24, 9, 30, 0) / 1000,
+        ...over,
+      },
+    },
+  };
+}
+
+function hook(body: unknown, header?: string, t = NOW_S): Request {
+  const raw = JSON.stringify(body);
+  return new Request("https://aivory.net/coffee/webhook", {
+    method: "POST",
+    body: raw,
+    headers: { "stripe-signature": header ?? sign(raw, t) },
+  });
+}
+
+describe("POST /coffee/webhook", () => {
+  it("stores a receipt under the claim id and it verifies", async () => {
+    const { pkcs8, raw } = makeKeys();
+    const kv = new MemoryKv();
+    const res = await handleRequest(hook(event()), envFor(pkcs8, kv), fetch, NOW_MS);
+    expect(res.status).toBe(200);
+    const code = kv.store.get(CLAIM)!;
+    expect(code).toMatch(CODE_PATTERN);
+    expect(kv.puts[0].opts?.expirationTtl).toBe(90 * 86400);
+    const { ok, payload } = verifyCode(code, raw);
+    expect(ok).toBe(true);
+    expect(payload).toEqual({ year: 2026, receipt_id: "cs_live_hook1", issued: "2026-11-24T10:00:00Z" });
+  });
+
+  it("accepts async_payment_succeeded", async () => {
+    const { pkcs8 } = makeKeys();
+    const kv = new MemoryKv();
+    const body = event({}, "checkout.session.async_payment_succeeded");
+    expect((await handleRequest(hook(body), envFor(pkcs8, kv), fetch, NOW_MS)).status).toBe(200);
+    expect(kv.store.has(CLAIM)).toBe(true);
+  });
+
+  it("returns 400 for a bad signature", async () => {
+    const { pkcs8 } = makeKeys();
+    const kv = new MemoryKv();
+    const raw = JSON.stringify(event());
+    const res = await handleRequest(hook(event(), sign(raw, NOW_S, "whsec_other")), envFor(pkcs8, kv), fetch, NOW_MS);
+    expect(res.status).toBe(400);
+    expect(kv.store.size).toBe(0);
+  });
+
+  it("returns 400 when the signature header is missing", async () => {
+    const { pkcs8 } = makeKeys();
+    const req = new Request("https://aivory.net/coffee/webhook", { method: "POST", body: "{}" });
+    expect((await handleRequest(req, envFor(pkcs8), fetch, NOW_MS)).status).toBe(400);
+  });
+
+  it("returns 400 for a stale timestamp", async () => {
+    const { pkcs8 } = makeKeys();
+    const kv = new MemoryKv();
+    const res = await handleRequest(hook(event(), undefined, NOW_S - 301), envFor(pkcs8, kv), fetch, NOW_MS);
+    expect(res.status).toBe(400);
+    expect(kv.store.size).toBe(0);
+  });
+
+  it("ignores an unpaid session", async () => {
+    const { pkcs8 } = makeKeys();
+    const kv = new MemoryKv();
+    const res = await handleRequest(hook(event({ payment_status: "unpaid" })), envFor(pkcs8, kv), fetch, NOW_MS);
+    expect(res.status).toBe(200);
+    expect(kv.store.size).toBe(0);
+  });
+
+  it("ignores other event types", async () => {
+    const { pkcs8 } = makeKeys();
+    const kv = new MemoryKv();
+    const res = await handleRequest(hook(event({}, "charge.refunded")), envFor(pkcs8, kv), fetch, NOW_MS);
+    expect(res.status).toBe(200);
+    expect(kv.store.size).toBe(0);
+  });
+
+  it("ignores a client_reference_id without the claim format (Hopover)", async () => {
+    const { pkcs8 } = makeKeys();
+    const kv = new MemoryKv();
+    for (const ref of ["hopover-123", null, "aivw-c-XYZ", CLAIM.toUpperCase()]) {
+      const res = await handleRequest(hook(event({ client_reference_id: ref })), envFor(pkcs8, kv), fetch, NOW_MS);
+      expect(res.status).toBe(200);
+    }
+    expect(kv.store.size).toBe(0);
+  });
+
+  it("does not overwrite an existing receipt of the same year", async () => {
+    const { pkcs8 } = makeKeys();
+    const kv = new MemoryKv();
+    const env = envFor(pkcs8, kv);
+    await handleRequest(hook(event()), env, fetch, NOW_MS);
+    const first = kv.store.get(CLAIM);
+    const res = await handleRequest(hook(event({ id: "cs_live_hook2" })), env, fetch, NOW_MS + 5000);
+    expect(res.status).toBe(200);
+    expect(kv.store.get(CLAIM)).toBe(first);
+    expect(kv.puts.length).toBe(1);
+  });
+});
+
+describe("GET /coffee/claim/<id>", () => {
+  const get = (id: string) => new Request(`https://aivory.net/coffee/claim/${id}`);
+
+  it("returns 404 before, 200 after a webhook, 400 for a bad id", async () => {
+    const { pkcs8, raw } = makeKeys();
+    const kv = new MemoryKv();
+    const env = envFor(pkcs8, kv);
+
+    const miss = await handleRequest(get(CLAIM), env, fetch, NOW_MS);
+    expect(miss.status).toBe(404);
+    expect(await miss.json()).toEqual({ error: "not_found" });
+    expect(miss.headers.get("cache-control")).toBe("no-store");
+
+    await handleRequest(hook(event()), env, fetch, NOW_MS);
+    const hit = await handleRequest(get(CLAIM), env, fetch, NOW_MS);
+    expect(hit.status).toBe(200);
+    expect(hit.headers.get("cache-control")).toBe("no-store");
+    const { code } = (await hit.json()) as { code: string };
+    expect(verifyCode(code, raw).ok).toBe(true);
+
+    const bad = await handleRequest(get("aivw-c-short"), env, fetch, NOW_MS);
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toEqual({ error: "bad_request" });
+    expect(bad.headers.get("cache-control")).toBe("no-store");
   });
 });

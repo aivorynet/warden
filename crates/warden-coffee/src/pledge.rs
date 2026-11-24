@@ -4,7 +4,7 @@
 //! install, and the app reminds at moments when it just did useful work. Warden adds a yearly
 //! cycle: a signed receipt covers one calendar year.
 
-use crate::{COFFEE_URL, CoffeeState, NOTE_INTERVAL_DAYS};
+use crate::{CoffeeState, NOTE_INTERVAL_DAYS};
 use chrono::{Datelike, Duration};
 use warden_core::Clock;
 
@@ -89,7 +89,7 @@ pub fn take_note(
             Note {
                 title: "Your first token rotated on its own".to_owned(),
                 body: format!(
-                    "Warden just did the boring part for you. A coffee for {year} keeps it free and open source ({PRICE_LABEL}): {COFFEE_URL}"
+                    "Warden just did the boring part for you. A coffee for {year} keeps it free and open source ({PRICE_LABEL}). Use Settings > Buy a coffee or run `awd coffee --pay`."
                 ),
             }
         }
@@ -111,7 +111,7 @@ pub fn take_note(
             Note {
                 title: format!("A coffee for {year}?"),
                 body: format!(
-                    "{lead} One coffee a year stops this note ({PRICE_LABEL}): {COFFEE_URL}"
+                    "{lead} One coffee a year stops this note ({PRICE_LABEL}). Use Settings > Buy a coffee or run `awd coffee --pay`."
                 ),
             }
         }

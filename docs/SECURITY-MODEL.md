@@ -52,6 +52,16 @@ The daemon listens on a local endpoint. There is no network port and no HTTP.
 - The server checks the capability for every request. A request that the capability does not allow gets `forbidden`.
 - You can pair and unpair clients. `awd pair <name> --cap <cap>` shows the token once.
 
+## The coffee claim call
+
+Warden makes one outbound call that is not an MCP request: the coffee claim poll.
+
+- When: only in the daemon, only after you press Buy a coffee, Check payment, or run `awd coffee --pay` or `--check`, and only while the current year is not paid. The poll runs every 2 minutes for 1 hour, then every 6 hours, and stops 7 days after the last press. The `mcp` and `native-host` modes never call.
+- What it sends: one HTTPS GET to `https://aivory.net/coffee/claim/<claim id>`. The claim id is 128 random bits and is not derived from your ticket or device. The request has no cookie, no token, no vault data and no other identifier.
+- What it gets: a signed receipt code. Warden verifies the signature offline with the embedded public key. A bad or missing receipt changes nothing.
+- Limits: HTTPS only, no redirect, 10 second timeout, 16 KiB answer cap. A failure is silent and never blocks a rotation.
+- The pay link holds the same claim id. Stripe and the Worker see it. Anyone who knows the claim id can read the receipt for it.
+
 ## MCP limits
 
 See [crates/warden-mcp/README.md](../crates/warden-mcp/README.md) for the full list. In short:

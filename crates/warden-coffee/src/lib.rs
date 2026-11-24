@@ -21,8 +21,21 @@ pub const RECEIPT_PREFIX: &str = "aivw-receipt-";
 pub const COFFEE_URL: &str = "https://buy.stripe.com/5kQbJ3csm21Xfz64DhdjO00";
 /// Title of the reminder note.
 pub const NOTE_TITLE: &str = "Aivory Warden is free. A coffee keeps it that way.";
-/// Body of the reminder note.
-pub const NOTE_BODY: &str = "If Warden saves you time, buy the developer a coffee: https://buy.stripe.com/5kQbJ3csm21Xfz64DhdjO00. Paste the receipt code in Settings or run `awd coffee --receipt <code>` to stop this note for the year. Turn the note off in Settings.";
+/// Body of the reminder note. It does not print the bare donation link: a payment through the
+/// bare link has no claim id and cannot stop the note.
+pub const NOTE_BODY: &str = "If Warden saves you time, buy the developer a coffee. Use Settings > Buy a coffee or run `awd coffee --pay`, so that Warden sees the payment and stops this note for the year. Or paste a receipt code in Settings, or run `awd coffee --receipt <code>`. Turn the note off in Settings.";
+/// Base of the claim URL. The daemon appends the claim id.
+pub const CLAIM_URL: &str = "https://aivory.net/coffee/claim/";
+/// Prefix of a claim id.
+pub const CLAIM_PREFIX: &str = "aivw-c-";
+/// Poll every 2 minutes during the first hour after arming.
+pub const POLL_FAST_SECS: i64 = 120;
+/// Length of the fast poll window.
+pub const POLL_FAST_WINDOW_SECS: i64 = 3600;
+/// Poll every 6 hours after the fast window.
+pub const POLL_SLOW_SECS: i64 = 6 * 3600;
+/// The poll stops this long after arming.
+pub const POLL_STOP_SECS: i64 = 7 * 24 * 3600;
 /// Minimum time between two notes.
 pub const NOTE_INTERVAL_DAYS: i64 = 7;
 
@@ -113,6 +126,14 @@ pub struct CoffeeState {
     pub first_rotation_noted: bool,
     /// Successful rotations since the last note.
     pub rotations_since_note: u32,
+    /// Claim id of the current year. A bearer secret: never log it.
+    pub claim_id: Option<String>,
+    /// Year of the claim id.
+    pub claim_year: Option<i32>,
+    /// Time when the user last opened the pay link or asked for a check.
+    pub claim_armed_at: Option<DateTime<Utc>>,
+    /// Time of the last claim poll.
+    pub claim_last_poll_at: Option<DateTime<Utc>>,
 }
 
 impl CoffeeState {
@@ -120,6 +141,93 @@ impl CoffeeState {
     pub fn is_paid(&self, clock: &dyn Clock) -> bool {
         self.paid_year == Some(clock.now().year())
     }
+}
+
+/// Make a claim id: `aivw-c-` plus 32 lowercase hex characters from 128 bits of OS randomness.
+pub fn make_claim_id() -> Result<String, CoffeeError> {
+    use rand::TryRngCore;
+    let mut b = [0u8; 16];
+    rand::rngs::OsRng
+        .try_fill_bytes(&mut b)
+        .map_err(|e| CoffeeError::Io(std::io::Error::other(e.to_string())))?;
+    let mut id = String::from(CLAIM_PREFIX);
+    for x in b {
+        id.push_str(&format!("{x:02x}"));
+    }
+    Ok(id)
+}
+
+/// Return true when `s` has the shape of a claim id.
+pub fn is_claim_id(s: &str) -> bool {
+    s.strip_prefix(CLAIM_PREFIX).is_some_and(|h| {
+        h.len() == 32
+            && h.bytes()
+                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    })
+}
+
+/// Build the personal pay link: `COFFEE_URL?client_reference_id=<claim id>`.
+pub fn claim_link(claim_id: &str) -> String {
+    format!("{COFFEE_URL}?client_reference_id={claim_id}")
+}
+
+/// Make sure `state` holds a claim id of the current year. A new year makes a new id and
+/// clears the arm and poll times. Return true when `state` changed.
+pub fn ensure_claim(state: &mut CoffeeState, clock: &dyn Clock) -> Result<bool, CoffeeError> {
+    let year = clock.now().year();
+    let valid =
+        state.claim_year == Some(year) && state.claim_id.as_deref().is_some_and(is_claim_id);
+    if valid {
+        return Ok(false);
+    }
+    state.claim_id = Some(make_claim_id()?);
+    state.claim_year = Some(year);
+    state.claim_armed_at = None;
+    state.claim_last_poll_at = None;
+    Ok(true)
+}
+
+/// Arm the poll window now and clear the last poll time.
+pub fn arm_claim(state: &mut CoffeeState, clock: &dyn Clock) {
+    state.claim_armed_at = Some(clock.now());
+    state.claim_last_poll_at = None;
+}
+
+/// Return true when the scheduler must poll the claim now.
+///
+/// Rules: the year is not paid and the poll is armed. Poll every 2 minutes for 1 hour after
+/// arming, then every 6 hours until 7 days after arming, then stop.
+pub fn poll_due(state: &CoffeeState, clock: &dyn Clock) -> bool {
+    let (Some(armed), true) = (state.claim_armed_at, state.claim_id.is_some()) else {
+        return false;
+    };
+    if state.is_paid(clock) {
+        return false;
+    }
+    let now = clock.now();
+    let elapsed = (now - armed).num_seconds();
+    if !(0..=POLL_STOP_SECS).contains(&elapsed) {
+        return false;
+    }
+    let every = if elapsed <= POLL_FAST_WINDOW_SECS {
+        POLL_FAST_SECS
+    } else {
+        POLL_SLOW_SECS
+    };
+    match state.claim_last_poll_at {
+        Some(last) if last >= armed => (now - last).num_seconds() >= every,
+        _ => true,
+    }
+}
+
+/// Read the receipt code from a claim response body `{"code":"aivw-receipt-..."}`.
+pub fn parse_claim_response(body: &[u8]) -> Option<String> {
+    #[derive(Deserialize)]
+    struct R {
+        code: String,
+    }
+    let r: R = serde_json::from_slice(body).ok()?;
+    r.code.starts_with(RECEIPT_PREFIX).then_some(r.code)
 }
 
 /// Return true when the reminder note is due now.
@@ -362,5 +470,85 @@ mod tests {
         let raw: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(raw["coffee_reminder"], true);
+    }
+
+    #[test]
+    fn claim_id_format_and_uniqueness() {
+        let a = make_claim_id().unwrap();
+        let b = make_claim_id().unwrap();
+        assert!(is_claim_id(&a) && is_claim_id(&b));
+        assert_ne!(a, b);
+        assert!(!is_claim_id("aivw-c-ABCDEFABCDEFABCDEFABCDEFABCDEFAB"));
+        assert!(!is_claim_id("aivw-c-abc"));
+        assert_eq!(
+            claim_link(&a),
+            format!("{COFFEE_URL}?client_reference_id={a}")
+        );
+    }
+
+    #[test]
+    fn new_year_makes_new_claim_id() {
+        let c = FixedClock::new(at(2026, 11, 24));
+        let mut s = CoffeeState::default();
+        assert!(ensure_claim(&mut s, &c).unwrap());
+        let first = s.claim_id.clone().unwrap();
+        arm_claim(&mut s, &c);
+        assert!(!ensure_claim(&mut s, &c).unwrap());
+        assert_eq!(s.claim_id.as_deref(), Some(first.as_str()));
+        c.set(at(2027, 1, 2));
+        assert!(ensure_claim(&mut s, &c).unwrap());
+        assert_ne!(s.claim_id.as_deref(), Some(first.as_str()));
+        assert_eq!(s.claim_year, Some(2027));
+        assert!(s.claim_armed_at.is_none());
+    }
+
+    #[test]
+    fn poll_cadence() {
+        let c = FixedClock::new(at(2026, 11, 24));
+        let mut s = CoffeeState::default();
+        ensure_claim(&mut s, &c).unwrap();
+        assert!(!poll_due(&s, &c), "not armed");
+        arm_claim(&mut s, &c);
+        assert!(poll_due(&s, &c), "first poll at once");
+        s.claim_last_poll_at = Some(c.now());
+        c.advance(Duration::seconds(119));
+        assert!(!poll_due(&s, &c));
+        c.advance(Duration::seconds(1));
+        assert!(poll_due(&s, &c), "2 minutes");
+        s.claim_last_poll_at = Some(c.now());
+        c.advance(Duration::seconds(3600));
+        assert!(!poll_due(&s, &c), "slow cadence after 1 hour");
+        c.advance(Duration::hours(6));
+        assert!(poll_due(&s, &c));
+        s.claim_last_poll_at = Some(c.now());
+        c.advance(Duration::hours(5));
+        assert!(!poll_due(&s, &c));
+        c.advance(Duration::hours(1));
+        assert!(poll_due(&s, &c), "6 hours");
+        s.claim_last_poll_at = Some(c.now());
+        c.set(at(2026, 11, 24) + Duration::days(7) + Duration::seconds(1));
+        assert!(!poll_due(&s, &c), "stopped after 7 days");
+        c.set(at(2026, 11, 24) + Duration::hours(2));
+        s.claim_last_poll_at = None;
+        assert!(poll_due(&s, &c));
+        s.paid_year = Some(2026);
+        assert!(!poll_due(&s, &c), "paid year stops the poll");
+    }
+
+    #[test]
+    fn claim_response_parse() {
+        assert_eq!(
+            parse_claim_response(br#"{"code":"aivw-receipt-x.y"}"#).as_deref(),
+            Some("aivw-receipt-x.y")
+        );
+        assert!(parse_claim_response(br#"{"error":"not_found"}"#).is_none());
+        assert!(parse_claim_response(br#"{"code":"other"}"#).is_none());
+        assert!(parse_claim_response(b"nope").is_none());
+    }
+
+    #[test]
+    fn note_does_not_print_the_bare_link() {
+        assert!(!NOTE_BODY.contains("stripe.com"));
+        assert!(NOTE_BODY.contains("awd coffee --pay"));
     }
 }

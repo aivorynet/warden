@@ -29,6 +29,7 @@ const ALLOWED: &[&str] = &[
     "set_settings",
     "coffee_status",
     "coffee_receipt",
+    "coffee_check",
     "audit_list",
     "sign_pledge",
     "list_clients",

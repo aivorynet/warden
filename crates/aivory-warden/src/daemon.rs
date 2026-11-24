@@ -67,6 +67,12 @@ pub struct Daemon {
     key_file: Option<KeyFileCache>,
     notify_enabled: bool,
     coffee_lock: Arc<Mutex<()>>,
+    /// Base of the claim URL. Tests change it; production uses `warden_coffee::CLAIM_URL`.
+    claim_base: String,
+    /// Public key that verifies claim receipts.
+    receipt_key: [u8; 32],
+    /// Allow an `http://127.0.0.1` claim base. Only the test setter turns this on.
+    allow_loopback: bool,
 }
 
 impl std::fmt::Debug for Daemon {
@@ -149,7 +155,19 @@ impl Daemon {
             key_file: None,
             notify_enabled: !flag("WARDEN_NO_NOTIFY"),
             coffee_lock: Arc::new(Mutex::new(())),
+            claim_base: warden_coffee::CLAIM_URL.into(),
+            receipt_key: warden_coffee::PRODUCTION_PUBLIC_KEY,
+            allow_loopback: false,
         })
+    }
+
+    /// Point the claim poll at a loopback mock and verify receipts with `key`. Tests only.
+    #[cfg(test)]
+    fn with_claim_mock(mut self, base: String, key: [u8; 32]) -> Self {
+        self.claim_base = base;
+        self.receipt_key = key;
+        self.allow_loopback = true;
+        self
     }
 
     /// Cache the vault key in a file (mode 0600 on Unix). Opt-in, for headless Linux.
@@ -794,6 +812,117 @@ impl Daemon {
         }
     }
 
+    /// Arm the claim poll, poll once now, and return the coffee state.
+    async fn coffee_check(&self) -> Response {
+        self.coffee_poll(true).await;
+        Response::Coffee(self.coffee_info())
+    }
+
+    /// Poll the claim when the cadence says so. Never fails the caller.
+    async fn coffee_poll_tick(&self) {
+        let due = {
+            let _g = lock(&self.coffee_lock);
+            let st = self.coffee_state();
+            warden_coffee::poll_due(&st, self.clock.as_ref())
+        };
+        if due {
+            self.coffee_poll(false).await;
+        }
+    }
+
+    /// Fetch the receipt of the claim and apply it. The lock is not held during the request.
+    /// A failure is silent: it logs at debug level and leaves the state unpaid.
+    async fn coffee_poll(&self, arm: bool) {
+        let id = {
+            let _g = lock(&self.coffee_lock);
+            let store = CoffeeStore::new(self.paths.settings_file());
+            let mut st = store.load().unwrap_or_default();
+            if warden_coffee::ensure_claim(&mut st, self.clock.as_ref()).is_err() {
+                return;
+            }
+            if arm {
+                warden_coffee::arm_claim(&mut st, self.clock.as_ref());
+            }
+            st.claim_last_poll_at = Some(self.clock.now());
+            if let Err(e) = store.save(&st) {
+                tracing::warn!("cannot save the coffee state: {e}");
+            }
+            if st.is_paid(self.clock.as_ref()) {
+                return;
+            }
+            match st.claim_id.clone() {
+                Some(id) => id,
+                None => return,
+            }
+        };
+        let Some(body) = self.fetch_claim(&id).await else {
+            return;
+        };
+        let Some(code) = warden_coffee::parse_claim_response(&body) else {
+            tracing::debug!("claim response has no receipt");
+            return;
+        };
+        let _g = lock(&self.coffee_lock);
+        let store = CoffeeStore::new(self.paths.settings_file());
+        let mut st = store.load().unwrap_or_default();
+        if st.claim_id.as_deref() != Some(id.as_str()) {
+            return;
+        }
+        match warden_coffee::apply_receipt_with_key(
+            &mut st,
+            &code,
+            &self.receipt_key,
+            self.clock.as_ref(),
+        ) {
+            Ok(_) => {
+                if let Err(e) = store.save(&st) {
+                    tracing::warn!("cannot save the coffee state: {e}");
+                }
+            }
+            Err(e) => tracing::debug!("claim receipt refused: {e}"),
+        }
+    }
+
+    /// One GET of the claim URL. It sends only the claim id. https only (loopback http in
+    /// tests), 10 s timeout, 16 KiB cap, no redirect. Return the body of a 200 answer.
+    async fn fetch_claim(&self, id: &str) -> Option<Vec<u8>> {
+        const CAP: usize = 16 * 1024;
+        if !warden_coffee::is_claim_id(id) {
+            return None;
+        }
+        let url = format!("{}{id}", self.claim_base);
+        let loopback = self.allow_loopback && url.starts_with("http://127.0.0.1");
+        if !url.starts_with("https://") && !loopback {
+            return None;
+        }
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .https_only(!loopback)
+            .build()
+            .ok()?;
+        let mut resp = match client.get(&url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::debug!("claim poll failed: {}", e.without_url());
+                return None;
+            }
+        };
+        if resp.status() != reqwest::StatusCode::OK {
+            tracing::debug!("claim poll status {}", resp.status());
+            return None;
+        }
+        let mut body = Vec::new();
+        while let Ok(Some(chunk)) = resp.chunk().await {
+            if body.len() + chunk.len() > CAP {
+                tracing::debug!("claim response is too large");
+                return None;
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Some(body)
+    }
+
     /// Show the weekly coffee note as a desktop notification when it is due.
     async fn coffee_note(&self) {
         let reminder = self.settings().coffee_reminder;
@@ -811,7 +940,21 @@ impl Daemon {
     }
 
     fn coffee_info(&self) -> CoffeeInfo {
-        let st = self.coffee_state();
+        let st = {
+            let _g = lock(&self.coffee_lock);
+            let store = CoffeeStore::new(self.paths.settings_file());
+            let mut st = store.load().unwrap_or_default();
+            match warden_coffee::ensure_claim(&mut st, self.clock.as_ref()) {
+                Ok(true) => {
+                    if let Err(e) = store.save(&st) {
+                        tracing::warn!("cannot save the coffee state: {e}");
+                    }
+                }
+                Ok(false) => {}
+                Err(e) => tracing::warn!("cannot make a claim id: {e}"),
+            }
+            st
+        };
         let device = self
             .current()
             .map(|u| lock(&u.vault).device_id())
@@ -825,7 +968,14 @@ impl Daemon {
                 self.settings().coffee_reminder,
                 self.clock.as_ref(),
             ),
-            link: warden_coffee::COFFEE_URL.into(),
+            link: st
+                .claim_id
+                .as_deref()
+                .filter(|id| warden_coffee::is_claim_id(id))
+                .map_or_else(
+                    || warden_coffee::COFFEE_URL.to_owned(),
+                    warden_coffee::claim_link,
+                ),
             pledged: warden_coffee::is_pledged(&st),
             ticket: warden_coffee::ticket_no(&device.to_string(), year),
             price_label: warden_coffee::PRICE_LABEL.into(),
@@ -1013,6 +1163,7 @@ impl Handler for Daemon {
             Request::SetSettings { settings } => self.set_settings(settings),
             Request::CoffeeStatus => Response::Coffee(self.coffee_info()),
             Request::CoffeeReceipt { code } => self.coffee_receipt(&code),
+            Request::CoffeeCheck => self.coffee_check().await,
             Request::AuditList { item, limit } => self.audit(item, limit),
         }
     }
@@ -1137,6 +1288,15 @@ pub async fn run(
         }
     });
 
+    // The claim poll runs in its own task, so a slow request never delays a rotation.
+    let cp = Arc::clone(&daemon);
+    tokio::spawn(async move {
+        loop {
+            cp.coffee_poll_tick().await;
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        }
+    });
+
     eprintln!(
         "aivory-warden daemon listening on {}",
         server.path().display()
@@ -1150,6 +1310,119 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine as _;
+    use ed25519_dalek::{Signer, SigningKey};
+    use warden_core::FixedClock;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn test_daemon(dir: &std::path::Path, server: &MockServer, key: &SigningKey) -> Daemon {
+        let mut d = Daemon::new(Paths::from_home(dir.to_path_buf()), None)
+            .unwrap()
+            .with_claim_mock(
+                format!("{}/coffee/claim/", server.uri()),
+                key.verifying_key().to_bytes(),
+            );
+        d.clock = Arc::new(FixedClock::new(
+            chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 11, 24, 10, 0, 0).unwrap(),
+        ));
+        d
+    }
+
+    fn signed_receipt(key: &SigningKey, year: i32) -> String {
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "year": year,
+            "receipt_id": "cs_test_1",
+            "issued": "2026-11-24T10:00:00Z",
+        }))
+        .unwrap();
+        let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        format!(
+            "{}{}.{}",
+            warden_coffee::RECEIPT_PREFIX,
+            b64.encode(&payload),
+            b64.encode(key.sign(&payload).to_bytes())
+        )
+    }
+
+    #[tokio::test]
+    async fn coffee_check_sets_paid_year_from_signed_receipt() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = MockServer::start().await;
+        let key = SigningKey::from_bytes(&[7u8; 32]);
+        let d = test_daemon(dir.path(), &server, &key);
+        let info = d.coffee_info();
+        assert!(info.paid_year.is_none());
+        let id = d.coffee_state().claim_id.unwrap();
+        assert!(info.link.ends_with(&format!("?client_reference_id={id}")));
+        Mock::given(method("GET"))
+            .and(path(format!("/coffee/claim/{id}")))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "code": signed_receipt(&key, 2026) })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let Response::Coffee(after) = d.coffee_check().await else {
+            panic!("no coffee response");
+        };
+        assert_eq!(after.paid_year, Some(2026));
+        let st = d.coffee_state();
+        assert_eq!(st.paid_year, Some(2026));
+        assert!(st.claim_armed_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn claim_404_leaves_state_unpaid() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = MockServer::start().await; // no mock: every request gets 404
+        let key = SigningKey::from_bytes(&[7u8; 32]);
+        let d = test_daemon(dir.path(), &server, &key);
+        let Response::Coffee(info) = d.coffee_check().await else {
+            panic!("no coffee response");
+        };
+        assert!(info.paid_year.is_none());
+        let st = d.coffee_state();
+        assert!(st.paid_year.is_none());
+        assert!(st.claim_last_poll_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn receipt_with_wrong_key_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = MockServer::start().await;
+        let key = SigningKey::from_bytes(&[7u8; 32]);
+        let other = SigningKey::from_bytes(&[8u8; 32]);
+        let d = test_daemon(dir.path(), &server, &key);
+        d.coffee_info();
+        let id = d.coffee_state().claim_id.unwrap();
+        Mock::given(method("GET"))
+            .and(path(format!("/coffee/claim/{id}")))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "code": signed_receipt(&other, 2026) })),
+            )
+            .mount(&server)
+            .await;
+        d.coffee_check().await;
+        assert!(d.coffee_state().paid_year.is_none());
+    }
+
+    #[tokio::test]
+    async fn tick_polls_only_when_armed() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = MockServer::start().await;
+        let key = SigningKey::from_bytes(&[7u8; 32]);
+        let d = test_daemon(dir.path(), &server, &key);
+        d.coffee_info();
+        d.coffee_poll_tick().await;
+        assert!(server.received_requests().await.unwrap().is_empty());
+        d.coffee_check().await;
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        d.coffee_poll_tick().await; // 2 minutes not over
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
 
     #[test]
     fn partial_client_cannot_weaken_policy() {

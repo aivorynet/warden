@@ -353,6 +353,10 @@ pub enum Request {
         /// Receipt code.
         code: String,
     },
+    /// Arm the coffee claim poll, check the claim once now, and return the coffee state.
+    ///
+    /// The capability rule is the same as for `CoffeeReceipt`: `Full` only.
+    CoffeeCheck,
     /// Record the signed coffee pledge.
     SignPledge {
         /// Name of the user who signs.
@@ -519,8 +523,10 @@ mod tests {
             assert!(!cap.allows(&unpair));
             assert!(!cap.allows(&update));
             assert!(!cap.allows(&Request::SignPledge { user: "u".into() }));
+            assert!(!cap.allows(&Request::CoffeeCheck));
         }
         assert!(Capability::Full.allows(&unpair));
+        assert!(Capability::Full.allows(&Request::CoffeeCheck));
         let handover = Request::Handover {
             item: None,
             to: DeviceId::new(),

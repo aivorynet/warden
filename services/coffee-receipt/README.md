@@ -1,31 +1,42 @@
 # Coffee receipt Worker
 
-A Cloudflare Worker. It turns a paid Stripe Checkout session into a signed
-Aivory Warden coffee receipt. The Worker does not deploy itself. Paul owns the
-signing keys, the Stripe account and every deploy.
+A Cloudflare Worker. It turns a paid Stripe payment into a signed Aivory Warden
+coffee receipt. The Worker does not deploy itself. Paul owns the signing keys,
+the Stripe account and every deploy.
 
 ## Flow
 
-1. The buyer pays on the Stripe Payment Link
-   `https://buy.stripe.com/5kQbJ3csm21Xfz64DhdjO00` (the shared Aivory donation link, also used by Hopover).
-   This link has no return page today, so the Worker is not in use yet.
-2. Stripe redirects to `https://aivory.net/coffee/receipt?session_id={CHECKOUT_SESSION_ID}`.
-3. The Worker fetches the session from Stripe and requires `payment_status == "paid"`.
-4. The Worker signs `{year, receipt_id, issued}` with Ed25519 and shows the code.
+1. The daemon adds a claim id to the donation link:
+   `https://buy.stripe.com/5kQbJ3csm21Xfz64DhdjO00?client_reference_id=<claim id>`.
+   Hopover shares this link.
+2. The buyer pays on the link.
+3. Stripe sends `checkout.session.completed` to `https://aivory.net/coffee/webhook`.
+4. The Worker checks the signature, the paid status, and the claim id format.
+5. The Worker signs `{year, receipt_id, issued}` with Ed25519.
+6. The Worker stores the code in KV under the claim id for 90 days.
+7. The daemon reads `GET https://aivory.net/coffee/claim/<claim id>`.
+
+The donation link stays without a return page. Do not set a success URL on it.
 
 Code format (see `crates/warden-coffee/src/lib.rs`):
 `aivw-receipt-<base64url(payload JSON)>.<base64url(ed25519 signature over payload bytes)>`
 
+The spec is in `docs/coffee-claim.md`.
+
 ## Endpoints
 
-- `GET /coffee/receipt?session_id=cs_...` returns an HTML page with the code,
-  a copy button and the link `aivory-warden://receipt/<code>`.
-- Missing `session_id` returns 400. A malformed id returns 400.
-- An unpaid session returns 402. An unknown session returns 404.
+- `POST /coffee/webhook` takes a Stripe event.
+  A bad signature or a stale timestamp returns 400.
+  An event that does not apply returns 200. The Worker does nothing.
+  The Worker never overwrites a receipt of the same year.
+- `GET /coffee/claim/<claim id>` returns 200 `{"code":"..."}`, 404 `{"error":"not_found"}`,
+  or 400 `{"error":"bad_request"}`. Every response has `Cache-Control: no-store`.
+- `GET /coffee/receipt?session_id=cs_...` is the older route. It returns an HTML page with the code.
+  It needs a payment link with a return page. The donation link has none.
 
 ## Setup (Paul)
 
-1. Install dependencies:
+1. Install the dependencies:
 
    ```sh
    cd services/coffee-receipt
@@ -53,23 +64,33 @@ Code format (see `crates/warden-coffee/src/lib.rs`):
 
 5. Paste the printed public key into `PRODUCTION_PUBLIC_KEY` in
    `crates/warden-coffee/src/lib.rs`. Do this in a separate change.
-6. To use the Worker, make a separate Warden Payment Link (keep the donation link
-   without a return page) and set its success URL to:
-
-   `https://aivory.net/coffee/receipt?session_id={CHECKOUT_SESSION_ID}`
-
-7. Route the Worker under `aivory.net/coffee/receipt`. See the comment in `wrangler.toml`.
-8. Deploy when ready:
+6. Create the KV namespace. Paste the printed id into `wrangler.toml`. Remove the comment marks.
 
    ```sh
-   npx wrangler deploy
+   npx wrangler kv namespace create CLAIMS
    ```
+
+7. In the Stripe Dashboard, add a webhook endpoint:
+   - URL: `https://aivory.net/coffee/webhook`
+   - Events: `checkout.session.completed` and `checkout.session.async_payment_succeeded`
+8. Store the signing secret (`whsec_...`) of that endpoint:
+
+   ```sh
+   npx wrangler secret put STRIPE_WEBHOOK_SECRET
+   ```
+
+9. Route the Worker as `aivory.net/coffee/*`. See the comment in `wrangler.toml`.
+10. Deploy when ready:
+
+    ```sh
+    npx wrangler deploy
+    ```
 
 ## Checks
 
 ```sh
 npm run typecheck   # tsc --noEmit
-npm test            # vitest, Stripe is mocked
+npm test            # vitest, Stripe and KV are mocked
 ```
 
 `test/fixture-receipt.json` holds a public key and a code from a test key. The

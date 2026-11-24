@@ -11,6 +11,11 @@ Verified:
 - Linux: clippy + tests green in rust:1.95 container. Windows: all gates, e2e with GitLab/AWS mocks,
   MCP stdio smoke (scripts/smoke-mcp.ps1, docs/verification/), service install via HKCU Run.
 
+Coffee claim (2026-11-24, docs/coffee-claim.md):
+- Daemon side done: claim id, personal link, Request::CoffeeCheck, scheduler poll, awd coffee --pay/--check,
+  desktop Buy a coffee + Check payment, notes without the bare link.
+- Open: Worker (services/coffee-receipt) must serve GET /coffee/claim/<id>; set PRODUCTION_PUBLIC_KEY.
+
 Open:
 - macOS unverified. Linux other-user IPC test, SFTP test and systemd install run only in GitLab CI.
 - Tauri app not run interactively (tray, deep link). Edge extension not loaded in a real Edge yet.

@@ -6,10 +6,16 @@ Done (all gates green on Windows: fmt, clippy -D warnings, test, deny):
 - packaging/ (install.sh, install.ps1, Homebrew, winget, Scoop), release pipelines (GitHub + GitLab).
 - Design: docs/design/*.dc.html (canvas https://claude.ai/artifact/DA5MivX4oYKYj9nXKWw25a).
 
+Verified:
+- Three security reviews; all findings fixed with regression tests (see git log).
+- Linux: clippy + tests green in rust:1.95 container. Windows: all gates, e2e with GitLab/AWS mocks,
+  MCP stdio smoke (scripts/smoke-mcp.ps1, docs/verification/), service install via HKCU Run.
+
 Open:
-- Final security review findings (vault/engine and IPC/MCP/daemon).
-- Linux/macOS gates run only in GitLab CI: peer checks, SFTP test (WARDEN_TEST_SSH), systemd/launchd install.
-- Tauri app not run interactively yet (tray, deep link, start service).
+- macOS unverified. Linux other-user IPC test, SFTP test and systemd install run only in GitLab CI.
+- Tauri app not run interactively (tray, deep link). Edge extension not loaded in a real Edge yet.
+- No real provider API called yet. v2 UI controls: docs/verification/ui-controls.md.
+- Not built: run_with_secret MCP tool.
 - Paul owns: Stripe link + RECEIPT_SIGNING_KEY + PRODUCTION_PUBLIC_KEY (warden-coffee), Worker deploy,
   GitHub repo aivorynet/warden (+ homebrew-tap, scoop-bucket), signing secrets, security@aivory.net.
 - Push every branch to GitLab (origin) and, once it exists, to GitHub.

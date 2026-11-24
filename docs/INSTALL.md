@@ -55,7 +55,7 @@ Shell example with flags: `curl -fsSL .../install.sh | sh -s -- --service --exte
 Without a flag the script installs the two binaries and nothing else. The service and the native host need your consent, so they stay off by default. You can run them later:
 
 ```sh
-aivory-warden service install    # systemd --user, launchd agent, or a Task Scheduler task at logon
+aivory-warden service install    # systemd --user, launchd agent, or an HKCU Run entry at logon (Windows)
 aivory-warden extension install  # native messaging host for Edge and Chrome
 ```
 

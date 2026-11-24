@@ -1,0 +1,32 @@
+# service on Windows 11 without elevation, entry name AivoryWardenTest
+elevated: False
+
+## schtasks /Create /SC ONLOGON (old variant)
+ERROR: Access is denied.
+exit=1
+
+## aivory-warden service --name AivoryWardenTest status
+○ service not installed or not active
+exit=1
+
+## aivory-warden service --name AivoryWardenTest install
+✓ service installed and started
+exit=0
+registry: HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
+    AivoryWardenTest    REG_SZ    "C:\java\workspace\access-token-manager\target\debug\aivory-warden.exe" daemon
+daemon files in WARDEN_HOME: settings.json
+
+## aivory-warden service --name AivoryWardenTest status
+● service installed (HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run)
+exit=0
+
+## aivory-warden service --name AivoryWardenTest uninstall
+✓ service removed
+exit=0
+
+## aivory-warden service --name AivoryWardenTest status
+○ service not installed or not active
+exit=1
+
+spawned daemon pids: 35352
+note: the test stopped the daemon. uninstall removes only the autostart entry.

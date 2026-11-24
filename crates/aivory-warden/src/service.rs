@@ -1,4 +1,6 @@
-//! Service install for systemd (Linux), launchd (macOS) and Task Scheduler (Windows).
+//! Service install for systemd (Linux), launchd (macOS) and the `HKCU` Run key (Windows).
+//!
+//! Windows uses the Run key because a logon task in Task Scheduler needs admin rights.
 //!
 //! The render functions are pure, so unit tests run on every OS.
 
@@ -9,8 +11,21 @@ use warden_core::{Result, WardenError};
 pub const SYSTEMD_UNIT: &str = "aivory-warden.service";
 /// Label of the launchd agent.
 pub const LAUNCHD_LABEL: &str = "net.aivory.warden";
-/// Name of the scheduled task on Windows.
+/// Name of the autostart entry on Windows.
 pub const TASK_NAME: &str = "AivoryWarden";
+/// Registry key that holds the Windows autostart entries of the current user.
+pub const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+
+static NAME_OVERRIDE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Use another entry name on Windows (tests). Call it once, before any other function.
+pub fn set_task_name(name: &str) {
+    let _ = NAME_OVERRIDE.set(name.to_owned());
+}
+
+fn task_name() -> &'static str {
+    NAME_OVERRIDE.get().map_or(TASK_NAME, String::as_str)
+}
 
 /// Target operating system of a service plan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,7 +34,7 @@ pub enum Os {
     Linux,
     /// macOS with launchd.
     MacOs,
-    /// Windows with Task Scheduler.
+    /// Windows with the `HKCU` Run key.
     Windows,
 }
 
@@ -74,19 +89,18 @@ pub fn launchd_plist(exe: &Path) -> String {
     )
 }
 
-/// Arguments of `schtasks` that create the logon task.
-pub fn schtasks_create_args(exe: &Path) -> CmdLine {
+/// Arguments of `reg` that create the Run entry for `name`.
+pub fn reg_add_args(exe: &Path, name: &str) -> CmdLine {
     vec![
-        "/Create".into(),
-        "/SC".into(),
-        "ONLOGON".into(),
-        "/TN".into(),
-        TASK_NAME.into(),
-        "/TR".into(),
+        "add".into(),
+        RUN_KEY.into(),
+        "/v".into(),
+        name.into(),
+        "/t".into(),
+        "REG_SZ".into(),
+        "/d".into(),
         format!("\"{}\" daemon", exe.display()),
-        "/RL".into(),
-        "LIMITED".into(),
-        "/F".into(),
+        "/f".into(),
     ]
 }
 
@@ -140,11 +154,11 @@ pub fn install_plan(os: Os, exe: &Path, home: &Path, uid: &str) -> InstallPlan {
             }
         }
         Os::Windows => {
-            let mut c = vec!["schtasks".to_owned()];
-            c.extend(schtasks_create_args(exe));
+            let mut c = vec!["reg".to_owned()];
+            c.extend(reg_add_args(exe, task_name()));
             InstallPlan {
                 file: None,
-                commands: vec![c, cmd(&["schtasks", "/Run", "/TN", TASK_NAME])],
+                commands: vec![c],
             }
         }
     }
@@ -172,7 +186,7 @@ pub fn uninstall_plan(os: Os, home: &Path, uid: &str) -> (Vec<CmdLine>, Option<P
             unit_path(os, home),
         ),
         Os::Windows => (
-            vec![cmd(&["schtasks", "/Delete", "/TN", TASK_NAME, "/F"])],
+            vec![cmd(&["reg", "delete", RUN_KEY, "/v", task_name(), "/f"])],
             None,
         ),
     }
@@ -187,7 +201,7 @@ pub fn status_command(os: Os, uid: &str) -> CmdLine {
             "print".into(),
             format!("gui/{uid}/{LAUNCHD_LABEL}"),
         ],
-        Os::Windows => cmd(&["schtasks", "/Query", "/TN", TASK_NAME]),
+        Os::Windows => cmd(&["reg", "query", RUN_KEY, "/v", task_name()]),
     }
 }
 
@@ -239,6 +253,40 @@ pub fn install(exe: &Path) -> Result<()> {
     for c in &plan.commands {
         run_ok(c)?;
     }
+    if os == Os::Windows {
+        start_detached(exe)?;
+    }
+    Ok(())
+}
+
+/// Start the daemon now, without a console window (Windows has no service manager to do it).
+///
+/// `Start-Process` uses ShellExecute. The daemon does not inherit the pipes of this process,
+/// so a caller that reads our output does not wait for the daemon.
+#[cfg(windows)]
+fn start_detached(exe: &Path) -> Result<()> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let script = format!(
+        "Start-Process -WindowStyle Hidden -FilePath '{}' -ArgumentList 'daemon'",
+        exe.to_string_lossy().replace('\'', "''")
+    );
+    let out = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| WardenError::Config(format!("cannot start the daemon: {e}")))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    Err(WardenError::Config(format!(
+        "cannot start the daemon: {}",
+        String::from_utf8_lossy(&out.stderr).trim()
+    )))
+}
+
+#[cfg(not(windows))]
+fn start_detached(_exe: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -288,21 +336,20 @@ mod tests {
     }
 
     #[test]
-    fn schtasks_command_matches_spec() {
-        let a = schtasks_create_args(Path::new(r"C:\Apps\aivory-warden.exe"));
+    fn reg_command_matches_spec() {
+        let a = reg_add_args(Path::new(r"C:\Apps\aivory-warden.exe"), "AivoryWarden");
         assert_eq!(
             a,
             [
-                "/Create",
-                "/SC",
-                "ONLOGON",
-                "/TN",
+                "add",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                "/v",
                 "AivoryWarden",
-                "/TR",
-                "\"C:\\Apps\\aivory-warden.exe\" daemon",
-                "/RL",
-                "LIMITED",
-                "/F"
+                "/t",
+                "REG_SZ",
+                "/d",
+                r#""C:\Apps\aivory-warden.exe" daemon"#,
+                "/f"
             ]
         );
     }
@@ -357,15 +404,28 @@ mod tests {
             "",
         );
         assert!(p.file.is_none());
-        assert_eq!(p.commands[0][0], "schtasks");
+        assert_eq!(p.commands[0][0], "reg");
         assert_eq!(
             status_command(Os::Windows, ""),
-            ["schtasks", "/Query", "/TN", "AivoryWarden"]
+            [
+                "reg",
+                "query",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                "/v",
+                "AivoryWarden"
+            ]
         );
         let (cmds, _) = uninstall_plan(Os::Windows, Path::new("."), "");
         assert_eq!(
             cmds[0],
-            ["schtasks", "/Delete", "/TN", "AivoryWarden", "/F"]
+            [
+                "reg",
+                "delete",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                "/v",
+                "AivoryWarden",
+                "/f"
+            ]
         );
     }
 }

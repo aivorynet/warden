@@ -73,7 +73,7 @@ v2: Azure Entra, GCP SA keys, GitHub App tokens.
 
 **Coffee**: `services/coffee-receipt` Worker signs `{year, receipt_id, issued}`; app embeds pubkey, verifies offline; receipt code pasted in settings or `awd coffee --receipt <code>` (deep link `aivory-warden://receipt/...` too). Stored in local settings, not synced. If no valid receipt for the current year: one note max every 7 days (desktop notification + CLI stderr on TTY), link `https://aivory.net/coffee`. Never in `mcp`/`native-host` mode, never blocks a rotation. Setting flag `coffee_reminder` as in `code/crates/aivory-protocol/src/settings.rs`.
 
-**Packaging**: copy from `code/packaging/`: `install.sh` (macOS/Linux), `install.ps1`, Homebrew formula, winget manifests (id `Aivory.Warden`), MSIX, Tauri bundles (msi/dmg/AppImage/deb). Service install: systemd --user, launchd agent, Windows Task Scheduler at logon. Edge native-host registration in installer and `awd extension install`.
+**Packaging**: copy from `code/packaging/`: `install.sh` (macOS/Linux), `install.ps1`, Homebrew formula, winget manifests (id `Aivory.Warden`), MSIX, Tauri bundles (msi/dmg/AppImage/deb). Service install: systemd --user, launchd agent, Windows `HKCU\...\Run` autostart (Task Scheduler ONLOGON needs admin). Edge native-host registration in installer and `awd extension install`.
 
 ## Execution (subagents, sonnet unless noted; each brief per prompt-rules: scope, autonomy, gates, escalation, report)
 | Phase | Owner | Done-gate |

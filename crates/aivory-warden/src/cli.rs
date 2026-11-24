@@ -111,6 +111,9 @@ enum Cmd {
     },
     /// Install or remove the background service.
     Service {
+        /// Autostart entry name on Windows (tests only).
+        #[arg(long, hide = true)]
+        name: Option<String>,
         #[command(subcommand)]
         cmd: ServiceCmd,
     },
@@ -485,7 +488,12 @@ async fn run(ctx: &Ctx, cmd: Cmd) -> Code {
         Cmd::Audit { name, limit } => audit(ctx, name, limit).await,
         Cmd::Exec(a) => exec(ctx, a),
         Cmd::Coffee { receipt } => coffee(ctx, receipt).await,
-        Cmd::Service { cmd } => service_cmd(cmd),
+        Cmd::Service { name, cmd } => {
+            if let Some(n) = name {
+                service::set_task_name(&n);
+            }
+            service_cmd(cmd)
+        }
         Cmd::Extension { cmd } => extension(ctx, cmd),
         Cmd::Mcp => mcp(ctx).await,
         Cmd::Daemon { key_file } => {

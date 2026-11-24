@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Warden · Token detail</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#05010D}
+a{color:#B6F36A}a:hover{color:#D4FA9E}
+</style>
+</helmet>
+<div style="min-height: 820px; background: #05010D; color: #EDEAE3; font-family: 'IBM Plex Sans', system-ui, sans-serif; display: flex; flex-wrap: wrap">
+  <nav aria-label="Main" style="flex: 1 1 220px; max-width: 260px; min-width: 200px; background: #0D1624; border-right: 1px solid #1F2D44; padding: 24px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
+    <div style="padding: 0 8px 20px; font-weight: 700; font-size: 18px"><span style="display: block; font-size: 11px; letter-spacing: 0.14em; color: #9AA3B2">AIVORY</span>Warden</div>
+    <a href="Main.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; background: #172438; color: #EDEAE3; text-decoration: none; font-weight: 600">Tokens</a>
+    <a href="Extension.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; color: #C9CED8; text-decoration: none">Inbox</a>
+    <a href="Detail.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; color: #C9CED8; text-decoration: none">Audit log</a>
+    <a href="Settings.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; color: #C9CED8; text-decoration: none">Settings</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 32px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px">
+    <a href="Main.dc.html" style="font-size: 14px; text-decoration: none">← All tokens</a>
+    <header style="display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 6px; margin-right: auto">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+          <h1 style="margin: 0; font-size: 26px; font-family: 'JetBrains Mono', monospace; font-weight: 500">gitlab-ci-deploy</h1>
+          <span style="padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: rgba(182,243,106,0.12); color: #B6F36A">Healthy</span>
+        </div>
+        <p style="margin: 0; color: #9AA3B2; font-size: 14px">GitLab project access token · derived from gitlab-admin · provider name <span style="font-family: 'JetBrains Mono', monospace; color: #C9CED8">aivw_gitlab-ci-deploy_20261124</span></p>
+      </div>
+      <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #2B3B55; background: transparent; color: #EDEAE3; font: inherit; font-weight: 600">Verify now</button>
+      <button type="button" style="min-height: 44px; padding: 0 18px; border-radius: 8px; border: 0; background: {{accent}}; color: #05010D; font: inherit; font-weight: 600">Rotate now</button>
+    </header>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px">
+      <section aria-labelledby="pol" style="background: #0D1624; border: 1px solid #1F2D44; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px">
+        <h2 id="pol" style="margin: 0; font-size: 16px">Rotation policy</h2>
+        <label style="display: flex; align-items: center; justify-content: space-between; min-height: 44px; gap: 12px">
+          <span style="display: flex; flex-direction: column"><span style="font-weight: 600">Auto-rotate</span><span style="color: #9AA3B2; font-size: 13px">The daemon rotates this token on schedule.</span></span>
+          <input type="checkbox" checked style="width: 44px; height: 24px; accent-color: {{accent}}">
+        </label>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #9AA3B2">Interval
+            <select style="min-height: 44px; background: #05010D; color: #EDEAE3; border: 1px solid #2B3B55; border-radius: 8px; padding: 0 10px; font: inherit">
+              <option>Default (30 days)</option><option selected>14 days</option><option>7 days</option><option>90 days</option>
+            </select>
+          </label>
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #9AA3B2">Before end date
+            <select style="min-height: 44px; background: #05010D; color: #EDEAE3; border: 1px solid #2B3B55; border-radius: 8px; padding: 0 10px; font: inherit">
+              <option selected>7 days</option><option>3 days</option><option>14 days</option>
+            </select>
+          </label>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 14px; border-top: 1px solid #1F2D44; padding-top: 14px"><span style="color: #9AA3B2">Next rotation</span><span>27 Nov 2026, 03:12 · in 3 days</span></div>
+        <div style="display: flex; justify-content: space-between; font-size: 14px"><span style="color: #9AA3B2">Old token revoked after</span><span>10 min grace</span></div>
+        <div style="display: flex; justify-content: space-between; font-size: 14px"><span style="color: #9AA3B2">Rotator device</span><span>paul-laptop</span></div>
+      </section>
+
+      <section aria-labelledby="mcp" style="background: #0D1624; border: 1px solid #1F2D44; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+        <h2 id="mcp" style="margin: 0; font-size: 16px">MCP use</h2>
+        <p style="margin: 0; color: #9AA3B2; font-size: 13px">Agents send requests through Warden. They never see the value.</p>
+        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 13px"><span style="color: #9AA3B2">Allowed hosts</span>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap"><span style="font-family: 'JetBrains Mono', monospace; padding: 4px 10px; border-radius: 6px; background: #172438">gitlab.com</span><span style="font-family: 'JetBrains Mono', monospace; padding: 4px 10px; border-radius: 6px; background: #172438">gitlab.example.org</span></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 14px"><span style="color: #9AA3B2">Header</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">PRIVATE-TOKEN: {{placeholder}}</span></div>
+        <label style="display: flex; align-items: center; justify-content: space-between; min-height: 44px; gap: 12px; font-size: 14px">
+          <span style="display: flex; flex-direction: column"><span>Allow run_with_secret</span><span style="color: #F5B949; font-size: 12px">An agent that runs commands can copy the value.</span></span>
+          <input type="checkbox" style="width: 44px; height: 24px; accent-color: {{accent}}">
+        </label>
+      </section>
+    </div>
+
+    <section aria-labelledby="pl" style="background: #0D1624; border: 1px solid #1F2D44; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; justify-content: space-between"><h2 id="pl" style="margin: 0; font-size: 16px">Places that use this token</h2><button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid #2B3B55; background: transparent; color: #EDEAE3; font: inherit">Add place</button></div>
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 52px; border-top: 1px solid #1F2D44; flex-wrap: wrap">
+        <span style="font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 6px; background: #172438; color: #9CC3FF">.env</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; margin-right: auto">C:\java\workspace\shop\.env · GITLAB_TOKEN</span>
+        <span style="color: #B6F36A; font-size: 13px">Updated 10 Nov · verified</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 52px; border-top: 1px solid #1F2D44; flex-wrap: wrap">
+        <span style="font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 6px; background: #172438; color: #F5B949">SSH</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; margin-right: auto">deploy@build-01:/etc/runner/config.toml · runners.token</span>
+        <span style="color: #B6F36A; font-size: 13px">Updated 10 Nov · verified</span>
+      </div>
+    </section>
+
+    <section aria-labelledby="hist" style="display: flex; flex-direction: column; gap: 8px">
+      <h2 id="hist" style="margin: 0; font-size: 16px">History</h2>
+      <ol style="margin: 0; padding: 0; list-style: none; font-size: 13px; color: #C9CED8; display: flex; flex-direction: column; gap: 6px; font-family: 'JetBrains Mono', monospace">
+        <li>2026-11-10 03:12  rotated · 2 places written · old token revoked after grace</li>
+        <li>2026-10-27 03:09  rotated · 2 places written · old token revoked after grace</li>
+        <li>2026-10-13 14:40  added from Edge capture (gitlab.com)</li>
+      </ol>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#B6F36A","options":["#B6F36A","#7FD6FF","#F5B949"]},"$preview":{"width":1280,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#B6F36A', placeholder: '{{secret}}' };
+  }
+}
+</script>
+</body>
+</html>

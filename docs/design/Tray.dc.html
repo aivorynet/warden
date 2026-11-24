@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Warden · Tray and notifications</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#B6F36A}a:hover{color:#D4FA9E}
+</style>
+</helmet>
+<div style="width: 440px; height: 640px; box-sizing: border-box; padding: 24px; background: #1B2230; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #EDEAE3; display: flex; flex-direction: column; gap: 16px">
+  <div role="menu" aria-label="Warden tray menu" style="background: #0D1624; border: 1px solid #2B3B55; border-radius: 10px; padding: 6px; display: flex; flex-direction: column; font-size: 14px">
+    <div style="padding: 10px 12px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #1F2D44"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{accent}}"></span><span style="font-weight: 600">Warden</span><span style="color: #9AA3B2; margin-left: auto">unlocked</span></div>
+    <button type="button" role="menuitem" style="min-height: 40px; text-align: left; padding: 0 12px; border: 0; background: transparent; color: #EDEAE3; font: inherit">Open Warden</button>
+    <button type="button" role="menuitem" style="min-height: 40px; text-align: left; padding: 0 12px; border: 0; background: transparent; color: #EDEAE3; font: inherit; display: flex; align-items: center; justify-content: space-between">Rotate due tokens <span style="color: #F5B949; font-size: 12px">1 due</span></button>
+    <button type="button" role="menuitem" style="min-height: 40px; text-align: left; padding: 0 12px; border: 0; background: transparent; color: #EDEAE3; font: inherit; display: flex; align-items: center; justify-content: space-between">Inbox <span style="color: #9AA3B2; font-size: 12px">2 captured</span></button>
+    <button type="button" role="menuitem" style="min-height: 40px; text-align: left; padding: 0 12px; border: 0; background: transparent; color: #EDEAE3; font: inherit">Lock now</button>
+    <button type="button" role="menuitem" style="min-height: 40px; text-align: left; padding: 0 12px; border: 0; border-top: 1px solid #1F2D44; background: transparent; color: #9AA3B2; font: inherit">Quit desktop app (daemon keeps running)</button>
+  </div>
+
+  <div role="status" style="background: #0D1624; border: 1px solid #2B3B55; border-radius: 10px; padding: 14px; display: flex; gap: 12px">
+    <span style="width: 4px; border-radius: 2px; background: {{accent}}"></span>
+    <div style="display: flex; flex-direction: column; gap: 4px; font-size: 13px"><span style="font-weight: 600; font-size: 14px">gitlab-ci-deploy rotated</span><span style="color: #C9CED8">2 places updated and checked. Old token revoked.</span></div>
+  </div>
+
+  <div role="alert" style="background: #0D1624; border: 1px solid #5A2E2E; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; flex-direction: column; gap: 4px; font-size: 13px"><span style="font-weight: 600; font-size: 14px; color: #FF8A80">openai-agents-prod rotation failed</span><span style="color: #C9CED8">Host build-02 refused the SSH key. The new token is safe in the vault. Next try 14:20.</span></div>
+    <div style="display: flex; gap: 8px"><button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 6px; border: 1px solid #2B3B55; background: transparent; color: #EDEAE3; font: inherit; font-size: 13px">Open</button><button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 6px; border: 1px solid #2B3B55; background: transparent; color: #EDEAE3; font: inherit; font-size: 13px">Retry now</button></div>
+  </div>
+
+  <div role="status" style="background: #FAF6EF; color: #0D0D0E; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+    <span style="font-weight: 600; font-size: 14px">Warden rotated 9 tokens this week</span>
+    <span style="font-size: 13px; color: #4A4A4A">A coffee for 2026 keeps it free and open source. This note comes once a week until you pay once this year.</span>
+    <div style="display: flex; gap: 8px"><a href="https://aivory.net/coffee" style="min-height: 36px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: 6px; background: #0D0D0E; color: #FAF6EF; text-decoration: none; font-size: 13px; font-weight: 600">Buy a coffee</a><button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 6px; border: 1px solid #0D0D0E; background: transparent; color: #0D0D0E; font: inherit; font-size: 13px">Later</button></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#B6F36A","options":["#B6F36A","#7FD6FF","#F5B949"]},"$preview":{"width":440,"height":640}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#B6F36A' };
+  }
+}
+</script>
+</body>
+</html>

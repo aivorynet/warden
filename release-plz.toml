@@ -1,0 +1,35 @@
+# release-plz configuration.
+# One version for the whole workspace: [workspace.package] version in Cargo.toml.
+# One tag vX.Y.Z and one CHANGELOG.md at the root. Nothing goes to crates.io.
+
+[workspace]
+changelog_config = "cliff.toml"
+publish = false
+git_only = true
+git_release_enable = false
+git_tag_enable = false
+changelog_update = false
+semver_check = false
+dependencies_update = false
+allow_dirty = false
+release_always = false
+pr_name = "chore(release): {{ version }}"
+pr_labels = ["release"]
+
+# The binary crate carries the shared tag and the shared changelog.
+[[package]]
+name = "aivory-warden"
+git_tag_enable = true
+git_tag_name = "v{{ version }}"
+changelog_update = true
+changelog_path = "./CHANGELOG.md"
+changelog_include = [
+    "warden-core",
+    "warden-vault",
+    "warden-providers",
+    "warden-sinks",
+    "warden-engine",
+    "warden-ipc",
+    "warden-mcp",
+    "warden-coffee",
+]

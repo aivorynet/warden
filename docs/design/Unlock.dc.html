@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Warden · Unlock</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#05010D}
+a{color:#B6F36A}a:hover{color:#D4FA9E}
+</style>
+</helmet>
+<div style="min-height: 820px; background: #05010D; color: #EDEAE3; font-family: 'IBM Plex Sans', system-ui, sans-serif; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 32px; padding: 40px 24px; box-sizing: border-box">
+  <form style="flex: 1 1 380px; max-width: 420px; background: #0D1624; border: 1px solid #1F2D44; border-radius: 16px; padding: 32px; display: flex; flex-direction: column; gap: 20px">
+    <div style="display: flex; align-items: center; gap: 12px">
+      <svg width="40" height="40" viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M14 2 L24 6 V13 C24 19.5 19.8 24.2 14 26 C8.2 24.2 4 19.5 4 13 V6 Z" stroke="{{accent}}" stroke-width="2" stroke-linejoin="round"></path><circle cx="14" cy="12" r="3" stroke="{{accent}}" stroke-width="2"></circle><path d="M14 15 V20" stroke="{{accent}}" stroke-width="2" stroke-linecap="round"></path></svg>
+      <div><div style="font-size: 11px; letter-spacing: 0.14em; color: #9AA3B2; font-weight: 600">AIVORY</div><h1 style="margin: 0; font-size: 24px">Unlock Warden</h1></div>
+    </div>
+    <p style="margin: 0; color: #9AA3B2; font-size: 14px">Vault on this device: <span style="font-family: 'JetBrains Mono', monospace; color: #C9CED8">~/Sync/warden-vault</span></p>
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #9AA3B2">Master password
+      <input type="password" value="correct-horse-staple" style="min-height: 44px; background: #05010D; color: #EDEAE3; border: 1px solid #2B3B55; border-radius: 8px; padding: 0 12px; font: inherit">
+    </label>
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #9AA3B2">Secret Key (from your Emergency Kit)
+      <input value="A3-7KQ2M9-XW4TP-R8D6F-2HNC5-JV9Q3" style="min-height: 44px; background: #05010D; color: #EDEAE3; border: 1px solid #2B3B55; border-radius: 8px; padding: 0 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px">
+    </label>
+    <label style="display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px">
+      <input type="checkbox" checked style="width: 20px; height: 20px; accent-color: {{accent}}">
+      Keep unlocked for background rotation (OS keychain)
+    </label>
+    <button type="submit" style="min-height: 48px; border-radius: 8px; border: 0; background: {{accent}}; color: #05010D; font: inherit; font-weight: 700; font-size: 16px">Unlock</button>
+    <p style="margin: 0; font-size: 13px; color: #9AA3B2">New device? <a href="Settings.dc.html">Join an existing vault</a></p>
+  </form>
+
+  <aside aria-label="Emergency Kit" style="flex: 1 1 380px; max-width: 460px; background: #FAF6EF; color: #0D0D0E; border-radius: 16px; padding: 32px; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; justify-content: space-between; align-items: baseline"><h2 style="margin: 0; font-size: 20px">Emergency Kit</h2><span style="font-size: 12px; color: #4A4A4A">first run</span></div>
+    <p style="margin: 0; font-size: 14px; color: #4A4A4A">Print this page or store it offline. Warden has no server: without the Secret Key and the password nobody can open the vault, also not Aivory.</p>
+    <div style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; color: #4A4A4A; font-weight: 600">SECRET KEY</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 18px; letter-spacing: 0.04em">A3-7KQ2M9-XW4TP-R8D6F-2HNC5-JV9Q3</span></div>
+    <div style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; color: #4A4A4A; font-weight: 600">MASTER PASSWORD</span><span style="height: 36px; border-bottom: 1px solid #0D0D0E"></span></div>
+    <div style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; color: #4A4A4A; font-weight: 600">VAULT ID</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">0193f2c4-8e1a-7b3d-9a52-4c6e1f0d2b77</span></div>
+    <div style="display: flex; gap: 12px; flex-wrap: wrap">
+      <button type="button" style="min-height: 44px; padding: 0 18px; border-radius: 8px; border: 0; background: #0D0D0E; color: #FAF6EF; font: inherit; font-weight: 600">Save as PDF</button>
+      <button type="button" style="min-height: 44px; padding: 0 18px; border-radius: 8px; border: 1px solid #0D0D0E; background: transparent; color: #0D0D0E; font: inherit; font-weight: 600">I stored it</button>
+    </div>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#B6F36A","options":["#B6F36A","#7FD6FF","#F5B949"]},"$preview":{"width":1280,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#B6F36A' };
+  }
+}
+</script>
+</body>
+</html>

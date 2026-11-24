@@ -1,0 +1,9 @@
+Aivory Warden - next-session handoff
+====================================
+Spec: docs/PLAN.md. Read it first.
+
+[x] Phase 0: workspace skeleton + warden-core (types, traits, wire types).
+[ ] Phase 1a vault, 1b sinks, 1c providers, 1d ipc + coffee (parallel).
+[ ] Phase 2 engine. Phase 3 binary + service. Phase 4 mcp, desktop, extension, worker. Phase 5 release.
+
+NEXT STEP: phase 1 (four parallel agents against frozen warden-core).

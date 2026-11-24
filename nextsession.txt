@@ -1,9 +1,15 @@
-Aivory Warden - next-session handoff
-====================================
-Spec: docs/PLAN.md. Read it first.
+Aivory Warden - status 2026-11-24
 
-[x] Phase 0: workspace skeleton + warden-core (types, traits, wire types).
-[ ] Phase 1a vault, 1b sinks, 1c providers, 1d ipc + coffee (parallel).
-[ ] Phase 2 engine. Phase 3 binary + service. Phase 4 mcp, desktop, extension, worker. Phase 5 release.
+Done (all gates green on Windows: fmt, clippy -D warnings, test, deny):
+- Crates: warden-core, -vault, -providers, -sinks, -engine, -ipc, -mcp, -coffee, -native-host, aivory-warden (bin + awd).
+- apps/desktop (Tauri 2), extension/ (Edge MV3), services/coffee-receipt (Cloudflare Worker).
+- packaging/ (install.sh, install.ps1, Homebrew, winget, Scoop), release pipelines (GitHub + GitLab).
+- Design: docs/design/*.dc.html (canvas https://claude.ai/artifact/DA5MivX4oYKYj9nXKWw25a).
 
-NEXT STEP: phase 1 (four parallel agents against frozen warden-core).
+Open:
+- Final security review findings (vault/engine and IPC/MCP/daemon).
+- Linux/macOS gates run only in GitLab CI: peer checks, SFTP test (WARDEN_TEST_SSH), systemd/launchd install.
+- Tauri app not run interactively yet (tray, deep link, start service).
+- Paul owns: Stripe link + RECEIPT_SIGNING_KEY + PRODUCTION_PUBLIC_KEY (warden-coffee), Worker deploy,
+  GitHub repo aivorynet/warden (+ homebrew-tap, scoop-bucket), signing secrets, security@aivory.net.
+- Push every branch to GitLab (origin) and, once it exists, to GitHub.

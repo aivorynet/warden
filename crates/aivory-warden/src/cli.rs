@@ -3,7 +3,7 @@
 use crate::paths::Paths;
 use crate::sinkspec::{self, SshDefaults};
 use crate::store::{self, PairingFile};
-use crate::{daemon, duration, service};
+use crate::{daemon, duration, mcp_setup, service};
 use chrono::{DateTime, Utc};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::io::{IsTerminal, Write};
@@ -127,6 +127,8 @@ enum Cmd {
     },
     /// Run the MCP server on stdio (agents start this).
     Mcp,
+    /// Add the Warden MCP server to your AI tools (Claude, Codex, Gemini, Cursor and more).
+    McpSetup(McpSetupArgs),
     /// Run the background daemon.
     Daemon {
         /// Cache the vault key in this file (mode 0600). Opt-in, for headless Linux.
@@ -371,6 +373,22 @@ struct PairArgs {
 }
 
 #[derive(Debug, Args)]
+struct McpSetupArgs {
+    /// Connect one client (for example `cursor`). See `--list` for the ids.
+    #[arg(long, value_name = "ID", conflicts_with_all = ["all", "remove", "list"])]
+    client: Option<String>,
+    /// Connect every installed client that is not connected yet.
+    #[arg(long, conflicts_with_all = ["remove", "list"])]
+    all: bool,
+    /// Remove the Warden entry from one client and unpair it.
+    #[arg(long, value_name = "ID", conflicts_with = "list")]
+    remove: Option<String>,
+    /// List the clients and their state.
+    #[arg(long)]
+    list: bool,
+}
+
+#[derive(Debug, Args)]
 struct ExecArgs {
     /// Name or id of the token.
     name: String,
@@ -499,6 +517,7 @@ async fn run(ctx: &Ctx, cmd: Cmd) -> Code {
         }
         Cmd::Extension { cmd } => extension(ctx, cmd),
         Cmd::Mcp => mcp(ctx).await,
+        Cmd::McpSetup(a) => mcp_setup(ctx, a),
         Cmd::Daemon { key_file } => {
             daemon::run(ctx.paths.clone(), ctx.vault.clone(), key_file).await?;
             Ok(0)
@@ -1786,6 +1805,104 @@ async fn mcp(ctx: &Ctx) -> Code {
     Ok(0)
 }
 
+fn mcp_setup_print(env: &mcp_setup::Env) {
+    let mut rows = vec![
+        ["ID", "CLIENT", "STATE", "CONFIG"]
+            .map(String::from)
+            .to_vec(),
+    ];
+    for s in mcp_setup::list(env) {
+        let state = match (s.installed, s.connected) {
+            (_, true) => "connected",
+            (true, false) => "ready",
+            (false, false) => "not found",
+        };
+        rows.push(vec![
+            s.id.into(),
+            s.name.into(),
+            state.into(),
+            s.config.display().to_string(),
+        ]);
+    }
+    print!("{}", table(&rows));
+}
+
+fn mcp_setup_add(ctx: &Ctx, env: &mcp_setup::Env, bin: &Path, id: &str) -> Result<()> {
+    let name = mcp_setup::client(id)?.name;
+    match mcp_setup::add(env, &ctx.paths, id, bin)? {
+        mcp_setup::Outcome::AlreadyConnected => println!("{name}: already connected"),
+        _ => println!("\u{2713} {name}: connected. Restart the tool to load it."),
+    }
+    Ok(())
+}
+
+fn mcp_setup(ctx: &Ctx, a: McpSetupArgs) -> Code {
+    use std::io::IsTerminal;
+    let env = mcp_setup::Env::real()?;
+    if a.list {
+        mcp_setup_print(&env);
+        return Ok(0);
+    }
+    if let Some(id) = a.remove {
+        let name = mcp_setup::client(&id)?.name;
+        match mcp_setup::remove(&env, &ctx.paths, &id)? {
+            mcp_setup::Outcome::NotConnected => println!("{name}: not connected"),
+            _ => println!("\u{2713} {name}: removed and unpaired"),
+        }
+        return Ok(0);
+    }
+    let bin = mcp_setup::binary_path()?;
+    if let Some(id) = a.client {
+        mcp_setup_add(ctx, &env, &bin, &id)?;
+        return Ok(0);
+    }
+    let all = mcp_setup::list(&env);
+    let todo: Vec<_> = all.iter().filter(|s| s.installed).collect();
+    if a.all {
+        for s in todo {
+            mcp_setup_add(ctx, &env, &bin, s.id)?;
+        }
+        return Ok(0);
+    }
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        mcp_setup_print(&env);
+        return Ok(0);
+    }
+    if todo.is_empty() {
+        println!("No AI tool found.");
+        return Ok(0);
+    }
+    let labels: Vec<String> = todo
+        .iter()
+        .map(|s| {
+            if s.connected {
+                format!("{} (connected)", s.name)
+            } else {
+                s.name.to_owned()
+            }
+        })
+        .collect();
+    let defaults: Vec<bool> = todo.iter().map(|s| !s.connected).collect();
+    let picked = dialoguer::MultiSelect::new()
+        .with_prompt("Connect the Warden MCP server to (space selects, enter confirms)")
+        .items(&labels)
+        .defaults(&defaults)
+        .interact()
+        .map_err(|e| cfg_err(e.to_string()))?;
+    for i in picked {
+        mcp_setup_add(ctx, &env, &bin, todo[i].id)?;
+    }
+    let others: Vec<&str> = all
+        .iter()
+        .filter(|s| !s.installed)
+        .map(|s| s.name)
+        .collect();
+    if !others.is_empty() {
+        println!("Not found: {}", others.join(", "));
+    }
+    Ok(0)
+}
+
 async fn native_host(paths: &Paths) -> Code {
     let endpoint = paths.endpoint();
     let token_file = paths.native_host_token();
@@ -1835,6 +1952,7 @@ mod tests {
             "service",
             "extension",
             "mcp",
+            "mcp-setup",
             "daemon",
         ] {
             assert!(help.contains(verb), "missing verb {verb}");

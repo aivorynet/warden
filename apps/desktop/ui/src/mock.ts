@@ -1,5 +1,5 @@
 /** Sample data for the browser preview (no Tauri). Nothing here touches a real vault. */
-import type { Audit, AppState, Coffee, InboxEntry, Item, McpClient, Settings, Sink, Status, Summary, ProviderKind } from "./types.js";
+import type { AiClient, Audit, AppState, Coffee, InboxEntry, Item, McpClient, Settings, Sink, Status, Summary, ProviderKind } from "./types.js";
 import { DAY } from "./types.js";
 
 const now = Date.now();
@@ -46,6 +46,13 @@ let paidYear: number | null = null;
 let inbox: InboxEntry[] = [
   { id: "0193f2c4-8e1a-7b3d-9a52-4c6e1f0d9001", origin: "dash.cloudflare.com", label: "cloudflare-dns", captured_at: iso(-120), provider_hint: "cloudflare", expires_at: iso(60 * DAY) },
   { id: "0193f2c4-8e1a-7b3d-9a52-4c6e1f0d9002", origin: "platform.openai.com", label: "openai-admin", captured_at: iso(-3600), provider_hint: "openai", expires_at: null },
+];
+let aiClients: AiClient[] = [
+  { id: "claude-code", name: "Claude Code", installed: true, connected: false, config: "~/.claude.json" },
+  { id: "cursor", name: "Cursor", installed: true, connected: true, config: "~/.cursor/mcp.json" },
+  { id: "codex", name: "OpenAI Codex CLI", installed: true, connected: false, config: "~/.codex/config.toml" },
+  { id: "claude-desktop", name: "Claude Desktop", installed: false, connected: false, config: "" },
+  { id: "vscode", name: "VS Code", installed: false, connected: false, config: "" },
 ];
 let mcpClients: McpClient[] = [
   { id: "a1b2c3d4e5f6", name: "Claude Code", capabilities: ["mcp_use"], paired_at: "2026-11-12T10:00:00Z" },
@@ -129,6 +136,21 @@ export async function mockCall(req: Record<string, any>): Promise<Record<string,
     case "audit_list": return { type: "audit", audit: audit(req["item"] ?? null) };
     case "sign_pledge": pledged = true; return { type: "ok" };
     case "init": return { type: "ok", kit: { secret_key: "A3-7KQ2M-9XW4T-PR8D6-F2HNC-5JV9Q", vault: "0193f2c4-8e1a-7b3d-9a52-4c6e1f0d2b77", device: "PAUL-LAPTOP", ticket: "AIVW-2026-6909" } };
+    case "mcp_setup_list": return { type: "ok", clients: aiClients };
+    case "mcp_setup_connect": {
+      const results = (req["ids"] as string[]).map((id) => {
+        const c = aiClients.find((x) => x.id === id);
+        const was = c?.connected ?? false;
+        if (c) c.connected = true;
+        return { id, ok: true, message: was ? "already connected" : "connected" };
+      });
+      return { type: "ok", results };
+    }
+    case "mcp_setup_remove": {
+      const c = aiClients.find((x) => x.id === req["id"]);
+      if (c) c.connected = false;
+      return { type: "ok" };
+    }
     case "list_clients": return { type: "clients", clients: mcpClients };
     case "unpair": mcpClients = mcpClients.filter((c) => c.id !== req["id"]); return { type: "ok" };
     case "list_devices": return { type: "devices", devices: [

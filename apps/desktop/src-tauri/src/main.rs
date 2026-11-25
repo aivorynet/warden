@@ -75,6 +75,62 @@ fn open_url(url: String) -> Result<(), String> {
     open::that(url).map_err(|e| e.to_string())
 }
 
+/// The AI tools that Warden can connect, and their state.
+#[tauri::command]
+async fn mcp_setup_list() -> Result<Vec<Value>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let env = aivory_warden::mcp_setup::Env::real().map_err(|e| e.to_string())?;
+        Ok(aivory_warden::mcp_setup::list(&env)
+            .into_iter()
+            .map(|s| {
+                serde_json::json!({
+                    "id": s.id, "name": s.name, "installed": s.installed,
+                    "connected": s.connected, "config": s.config.display().to_string(),
+                })
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Connect the listed clients. One entry per client: `{id, ok, message}`.
+#[tauri::command]
+async fn mcp_setup_connect(ids: Vec<String>) -> Result<Vec<Value>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use aivory_warden::mcp_setup as m;
+        let env = m::Env::real().map_err(|e| e.to_string())?;
+        let paths = aivory_warden::Paths::discover().map_err(|e| e.to_string())?;
+        let bin = m::binary_path().map_err(|e| e.to_string())?;
+        Ok(ids
+            .iter()
+            .map(|id| match m::add(&env, &paths, id, &bin) {
+                Ok(o) => serde_json::json!({
+                    "id": id, "ok": true,
+                    "message": if o == m::Outcome::AlreadyConnected { "already connected" } else { "connected" },
+                }),
+                Err(e) => serde_json::json!({ "id": id, "ok": false, "message": e.to_string() }),
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Remove the Warden entry from one client and unpair it.
+#[tauri::command]
+async fn mcp_setup_remove(id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let env = aivory_warden::mcp_setup::Env::real().map_err(|e| e.to_string())?;
+        let paths = aivory_warden::Paths::discover().map_err(|e| e.to_string())?;
+        aivory_warden::mcp_setup::remove(&env, &paths, &id)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn main() {
     let daemon = match Daemon::discover() {
         Ok(d) => Arc::new(d),
@@ -94,7 +150,10 @@ fn main() {
             sign_pledge,
             init_vault,
             start_service,
-            open_url
+            open_url,
+            mcp_setup_list,
+            mcp_setup_connect,
+            mcp_setup_remove
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

@@ -73,6 +73,29 @@ Print the Emergency Kit when `awd init` shows it, and store it somewhere safe. T
 
 `aivory-warden mcp` runs a stdio MCP server. Pair the client once with `awd pair mcp`, then add the server to Claude Code, Claude Desktop, Cursor or another client. See [crates/warden-mcp/README.md](crates/warden-mcp/README.md) for the client configuration, the tools and the limits.
 
+### Connect your AI tools
+
+Warden adds its MCP server to your AI tools for you. You do not edit a config file.
+
+The desktop app shows the screen "Connect your AI tools" after the Emergency Kit. You can open the same list in Settings, in the section MCP clients. Use the command line when you prefer:
+
+```sh
+awd mcp-setup                 # a checklist of the installed tools
+awd mcp-setup --list          # show every tool and its state
+awd mcp-setup --client cursor # connect one tool
+awd mcp-setup --all           # connect every installed tool
+awd mcp-setup --remove cursor # remove the entry and unpair the tool
+```
+
+Warden supports Claude Code, Claude Desktop, OpenAI Codex CLI, Gemini CLI, Google Antigravity, Cursor, VS Code and Windsurf. A tool counts as installed when its config folder or its command exists.
+
+- Each tool gets its own pairing token. You can unpair one tool and keep the others.
+- Warden keeps a `.bak` copy of the old config file before it writes the new file.
+- Warden keeps all other servers and keys. It keeps the comments in a TOML file.
+- Warden changes nothing when it cannot parse the file. VS Code files with comments are an example.
+- A tool that already has the entry stays as it is.
+- Restart the tool after you connect it.
+
 ## Edge extension
 
 The extension in [extension/](extension/) sends a token from a provider page to the Warden inbox. It acts only when you click. It has no access to your pages by default. Review and accept captures with `awd inbox`. Register the native host with `awd extension install`. The release page has the extension zip.

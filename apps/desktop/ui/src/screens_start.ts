@@ -187,7 +187,7 @@ export function kit(root: HTMLElement): void {
       h("form", { onsubmit: (e: Event) => e.preventDefault() }, eyebrow("VAULT CREATED"), h("h1", { class: "disp" }, "Keep your key"), h("p", { class: "lead" }, "The vault is ready and unlocked. Store the Secret Key now. Warden cannot show it again."), h("div", { class: "bar" })),
       kitCard(k, () => {
         S.kit = null;
-        S.go("tokens");
+        S.go("connect");
       }),
     ),
   );

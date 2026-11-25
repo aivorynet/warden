@@ -25,7 +25,9 @@ export type Coffee = { paid_year: number | null; reminder_due: boolean; link: st
 export type Audit = { at: string; device: string; item: string | null; action: string; detail: string };
 export type Settings = { default_interval: number; coffee_reminder: boolean; keychain_cache: boolean };
 export type McpClient = { id: string; name: string; capabilities: string[]; paired_at: string };
-export type Device = { id: string; name: string; is_rotator_for: number; last_seen: string | null };
+export type AiClient = { id: string; name: string; installed: boolean; connected: boolean; config: string };
+export type ConnectResult = { id: string; ok: boolean; message: string };
+export type Device ={ id: string; name: string; is_rotator_for: number; last_seen: string | null };
 export type Kit = { secret_key: string; vault: string; device: string; ticket: string };
 export type AppState = { daemon_up: boolean; vault_exists: boolean; status: Status | null; error: string | null };
 

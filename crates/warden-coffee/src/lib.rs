@@ -41,9 +41,12 @@ pub const NOTE_INTERVAL_DAYS: i64 = 7;
 
 /// Production public key of the receipt signer.
 ///
-/// TODO(Paul): replace this placeholder with the public key of the production signing key pair.
-/// While the key is all zero, no production receipt verifies.
-pub const PRODUCTION_PUBLIC_KEY: [u8; 32] = [0u8; 32];
+/// Public half of the production receipt signing key (generated 2026-11-25). The private half
+/// is the Worker secret `RECEIPT_SIGNING_KEY`.
+pub const PRODUCTION_PUBLIC_KEY: [u8; 32] = [
+    0xa0, 0x37, 0x95, 0x9d, 0x06, 0xdc, 0xa4, 0x6e, 0xc7, 0xf4, 0x9d, 0xf9, 0xb6, 0x98, 0x37, 0x72,
+    0x1f, 0x2b, 0x43, 0x46, 0x74, 0x82, 0x94, 0xdf, 0x7b, 0xe8, 0xc5, 0xf6, 0x1f, 0x2d, 0x7b, 0x07,
+];
 
 /// Error of receipt verification or storage.
 #[derive(Debug, thiserror::Error)]
@@ -429,7 +432,7 @@ mod tests {
             verify_with_key(&code, &other),
             Err(CoffeeError::BadSignature)
         ));
-        // The all-zero placeholder key never verifies.
+        // The production key does not verify a code from a test key.
         assert!(verify(&code).is_err());
     }
 

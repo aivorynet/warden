@@ -31,9 +31,12 @@ S.refresh = async () => {
 function gate(r: string): string | null {
   const a = S.app;
   if (!a) return null;
+  // The Emergency Kit shows the Secret Key once. Never route away from it.
+  if (r === "kit" && S.kit) return null;
+  // First run: no vault means no client token, so the daemon cannot answer yet.
+  if (!a.vault_exists) return S.firstRunPledged ? "init" : "pledge";
   if (!a.daemon_up) return "down";
   if (S.coffee && !S.coffee.pledged) return "pledge";
-  if (!a.vault_exists) return "init";
   if (a.status?.locked) return "unlock";
   if (["pledge", "init", "unlock", "down"].includes(r)) return "tokens";
   return null;

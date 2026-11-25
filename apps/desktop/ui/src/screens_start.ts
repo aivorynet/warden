@@ -18,9 +18,14 @@ export function pledge(root: HTMLElement): void {
     "Deal. Let's go",
     async () => {
       try {
+        if (!S.app?.vault_exists) {
+          S.firstRunPledged = true;
+          S.go("init");
+          return;
+        }
         await signPledge();
         await S.refresh();
-        S.go(S.app?.vault_exists ? "unlock" : "init");
+        S.go("unlock");
       } catch (e) {
         err.textContent = errText(e);
       }

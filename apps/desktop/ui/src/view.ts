@@ -7,6 +7,8 @@ export const S = {
   app: null as AppState | null,
   coffee: null as Coffee | null,
   kit: null as Kit | null,
+  /** The pledge was signed on the first-run screen, before the vault exists. `init --pledge` records it. */
+  firstRunPledged: false,
   inbox: 0,
   go: (_route: string): void => {},
   refresh: async (): Promise<void> => {},

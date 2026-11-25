@@ -11,6 +11,7 @@ publish.workspace = true
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+gethostname = "1"
 aivory-warden = { path = "../../../crates/aivory-warden" }
 warden-core.workspace = true
 warden-ipc.workspace = true

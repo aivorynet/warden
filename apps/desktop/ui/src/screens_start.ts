@@ -11,7 +11,7 @@ const PLEDGE_TEXT =
 
 export function pledge(root: HTMLElement): void {
   const info = S.coffee;
-  const device = S.app?.status ? S.app.status.device_id.slice(-8).toUpperCase() : "THIS DEVICE";
+  const device = S.app?.status ? S.app.status.device_id.slice(-8).toUpperCase() : (S.app?.computer_name?.toUpperCase() || "THIS DEVICE");
   const signed = h("span", {});
   const err = h("div", { class: "err", role: "alert" });
   const go = cta(
@@ -135,7 +135,7 @@ export function unlock(root: HTMLElement, sample?: Kit): void {
 }
 
 export function init(root: HTMLElement): void {
-  const device = h("input", { value: "", placeholder: "default: the name of this computer" });
+  const device = h("input", { value: S.app?.computer_name ?? "", placeholder: "device name" });
   const pw = h("input", { type: "password", autocomplete: "new-password", required: true, minlength: 8 });
   const again = h("input", { type: "password", autocomplete: "new-password", required: true });
   const err = h("div", { class: "err", role: "alert" });

@@ -80,7 +80,7 @@ const audit = (id: string | null): Audit[] => {
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 export async function mockApp(): Promise<AppState> {
-  return { daemon_up: true, vault_exists: true, status: status(), error: null };
+  return { daemon_up: true, vault_exists: true, status: status(), error: null, computer_name: "PAUL-LAPTOP" };
 }
 
 export async function mockCall(req: Record<string, any>): Promise<Record<string, any>> {

@@ -27,7 +27,7 @@ export type Settings = { default_interval: number; coffee_reminder: boolean; key
 export type McpClient = { id: string; name: string; capabilities: string[]; paired_at: string };
 export type Device = { id: string; name: string; is_rotator_for: number; last_seen: string | null };
 export type Kit = { secret_key: string; vault: string; device: string; ticket: string };
-export type AppState = { daemon_up: boolean; vault_exists: boolean; status: Status | null; error: string | null };
+export type AppState = { daemon_up: boolean; vault_exists: boolean; status: Status | null; error: string | null; computer_name?: string };
 
 export type StampName = "HEALTHY" | "DUE" | "ROTATING" | "FAILED" | "REMINDER";
 

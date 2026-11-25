@@ -21,6 +21,15 @@ struct AppState {
     vault_exists: bool,
     status: Option<Value>,
     error: Option<String>,
+    /// Name of this computer, the default device name.
+    computer_name: String,
+}
+
+fn computer_name() -> String {
+    gethostname::gethostname()
+        .to_string_lossy()
+        .trim()
+        .to_owned()
 }
 
 #[tauri::command]
@@ -32,12 +41,14 @@ async fn app_state(d: Shared<'_>) -> Result<AppState, String> {
             vault_exists,
             status: Some(status),
             error: None,
+            computer_name: computer_name(),
         }),
         Err(e) => Ok(AppState {
             daemon_up: false,
             vault_exists,
             status: None,
             error: Some(e),
+            computer_name: computer_name(),
         }),
     }
 }

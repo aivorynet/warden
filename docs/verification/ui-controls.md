@@ -17,7 +17,7 @@ and in the `ALLOWED` list of `src-tauri/src/daemon.rs`, or a Tauri command that 
 | Inbox | Accept / Reject | `inbox_accept`, `inbox_reject` |
 | Settings | Default interval, keychain cache, coffee note | `set_settings` |
 | Settings | Pair client / Unpair | `pair`, `unpair` |
-| Settings | Apply receipt | `coffee_receipt` |
+| Settings, Pledge | Buy a coffee (opens the link, then the dialog: Yes, it went through / Not yet) | `coffee_status`, `coffee_mark_paid` |
 | Settings | Devices list (read only) | `list_devices` |
 
 ## Result

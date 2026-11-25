@@ -6,7 +6,7 @@ use crate::store::{self, PairingFile};
 use crate::{daemon, duration, service};
 use chrono::{DateTime, Utc};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use warden_coffee::{CoffeeStore, THANKS_TEXT};
@@ -103,17 +103,14 @@ enum Cmd {
     },
     /// Run a command with a token in an environment variable.
     Exec(ExecArgs),
-    /// Show the coffee state, or enter a receipt code.
+    /// Show the coffee state and the donation link.
     Coffee {
-        /// Receipt code.
-        #[arg(long)]
-        receipt: Option<String>,
-        /// Open the personal pay link in the browser. Warden then watches for the payment.
-        #[arg(long, conflicts_with_all = ["receipt", "check"])]
+        /// Open the donation link, then ask whether the payment went through.
+        #[arg(long, conflicts_with = "paid")]
         pay: bool,
-        /// Check for a payment now.
-        #[arg(long, conflicts_with = "receipt")]
-        check: bool,
+        /// Mark this year as paid without a browser (scripts, a payment on another device).
+        #[arg(long)]
+        paid: bool,
     },
     /// Install or remove the background service.
     Service {
@@ -493,11 +490,7 @@ async fn run(ctx: &Ctx, cmd: Cmd) -> Code {
         Cmd::Devices => devices(ctx).await,
         Cmd::Audit { name, limit } => audit(ctx, name, limit).await,
         Cmd::Exec(a) => exec(ctx, a),
-        Cmd::Coffee {
-            receipt,
-            pay,
-            check,
-        } => coffee(ctx, receipt, pay, check).await,
+        Cmd::Coffee { pay, paid } => coffee(ctx, pay, paid).await,
         Cmd::Service { name, cmd } => {
             if let Some(n) = name {
                 service::set_task_name(&n);
@@ -1645,16 +1638,10 @@ fn exec(ctx: &Ctx, a: ExecArgs) -> Code {
 
 // ---------------------------------------------------------------- coffee
 
-async fn coffee(ctx: &Ctx, receipt: Option<String>, pay: bool, check: bool) -> Code {
+async fn coffee(ctx: &Ctx, pay: bool, paid: bool) -> Code {
     let mut c = connect(&ctx.paths).await?;
-    if let Some(code) = receipt {
-        call(&mut c, Request::CoffeeReceipt { code }).await?;
-        println!("\u{2713} {THANKS_TEXT}");
-        return Ok(0);
-    }
-    // CoffeeCheck arms the payment watch in the daemon, so it runs before the link opens.
-    let req = if pay || check {
-        Request::CoffeeCheck
+    let req = if paid {
+        Request::CoffeeMarkPaid
     } else {
         Request::CoffeeStatus
     };
@@ -1666,20 +1653,31 @@ async fn coffee(ctx: &Ctx, receipt: Option<String>, pay: bool, check: bool) -> C
         println!("{THANKS_TEXT}");
         return Ok(0);
     }
-    if check {
-        println!("\u{2615} no payment seen yet. Ticket {}.", i.ticket);
-        println!("Warden checks again for 7 days after `awd coffee --pay`.");
+    println!("\u{2615} no coffee for this year yet. Ticket {}.", i.ticket);
+    println!("Price: {}. Link: {}", i.price_label, i.link);
+    if !pay {
+        println!("Run `awd coffee --pay` to open the link.");
         return Ok(0);
     }
-    println!("\u{2615} no coffee for this year yet. Ticket {}.", i.ticket);
-    println!("Price: {}. Your link: {}", i.price_label, i.link);
-    if pay {
-        if let Err(e) = open::that(&i.link) {
-            println!("Cannot open the browser: {e}. Open the link by hand.");
-        }
-        println!("Warden detects the payment by itself. Run `awd coffee --check` to check now.");
+    if let Err(e) = open::that(&i.link) {
+        println!("Cannot open the browser: {e}. Open the link by hand.");
+    }
+    if !std::io::stdin().is_terminal() {
+        println!("Warden cannot see your payment. After you pay, run `awd coffee --paid`.");
+        return Ok(0);
+    }
+    println!("Warden can't see your payment, so I'll just trust you on this one :)");
+    print!("Did it go through? [y/N] ");
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    let _ = std::io::stdin().read_line(&mut line);
+    if matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+        let Response::Coffee(_) = call(&mut c, Request::CoffeeMarkPaid).await? else {
+            return Err(unexpected());
+        };
+        println!("\u{2713} {THANKS_TEXT}");
     } else {
-        println!("Run `awd coffee --pay` to pay. Warden then detects the payment by itself.");
+        println!("Not yet. Run `awd coffee --pay` or `awd coffee --paid` later.");
     }
     Ok(0)
 }

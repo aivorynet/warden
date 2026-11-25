@@ -18,7 +18,7 @@ Read this file before you change anything in this repo.
 | `warden-engine` | Rotation state machine, journal, scheduler |
 | `warden-ipc` | Unix socket / named pipe, peer checks, pairing |
 | `warden-mcp` | stdio MCP server |
-| `warden-coffee` | Receipt verify, weekly cadence |
+| `warden-coffee` | Honor-system paid year, weekly cadence |
 | `aivory-warden` | Binary `aivory-warden` and alias `awd` |
 
 `warden-core` types and traits are frozen. Change them only with the owner approval.

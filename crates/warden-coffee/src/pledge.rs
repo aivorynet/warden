@@ -2,7 +2,7 @@
 //!
 //! This follows Hopover: the user signs a pledge at first run, a stable ticket number names the
 //! install, and the app reminds at moments when it just did useful work. Warden adds a yearly
-//! cycle: a signed receipt covers one calendar year.
+//! cycle: a payment that the user confirms covers one calendar year.
 
 use crate::{CoffeeState, NOTE_INTERVAL_DAYS};
 use chrono::{Datelike, Duration};
@@ -12,9 +12,9 @@ use warden_core::Clock;
 pub const PLEDGE_TEXT: &str = "I promise: if Warden saves me from one expired token, Paul gets his coffee. A promise is a promise, even on the internet.";
 /// Price label shown next to every coffee button.
 pub const PRICE_LABEL: &str = "pay what you want, 5 EUR suggested";
-/// Text shown when no receipt covers the current year.
-pub const HONEST_LINE: &str = "No account, no trial, no locked features. Warden checks a signed receipt offline, and it never stops a rotation.";
-/// Text shown after a valid receipt for the current year.
+/// Text shown when no confirmed payment covers the current year.
+pub const HONEST_LINE: &str = "No account, no trial, no locked features. Warden cannot see a payment, so it trusts you, and it never stops a rotation.";
+/// Text shown after the user confirms a payment for the current year.
 pub const THANKS_TEXT: &str =
     "Thanks for the coffee, genuinely. You made my day. If something breaks, send me the log.";
 /// Source code link.
@@ -69,7 +69,7 @@ pub fn record_rotation(state: &mut CoffeeState) {
 
 /// Return the note for `moment`, or `None` when no note is due.
 ///
-/// Rules: no note when the reminder is off or a receipt covers the current year. The first
+/// Rules: no note when the reminder is off or a confirmed payment covers the current year. The first
 /// completed rotation gets one note per install. The weekly note needs 7 days since the last
 /// note. A returned note is recorded in `state`, so the caller must save `state` after it.
 pub fn take_note(
@@ -174,7 +174,7 @@ mod tests {
     }
 
     #[test]
-    fn new_year_needs_new_receipt() {
+    fn new_year_starts_the_note_again() {
         let c = FixedClock::new(Utc.with_ymd_and_hms(2027, 1, 2, 9, 0, 0).unwrap());
         let mut s = CoffeeState {
             paid_year: Some(2026),

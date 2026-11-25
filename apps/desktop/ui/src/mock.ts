@@ -60,7 +60,7 @@ const sampleStatus: Record<string, Pick<Summary, "status" | "last_error" | "next
 };
 
 const status = (): Status => ({ version: "2026.11.0", locked: false, device_id: "0193f2c4-8e1a-7b3d-9a52-4c6e1f0d0014", item_count: items.length, inbox_count: inbox.length });
-const coffee = (): Coffee => ({ paid_year: paidYear, reminder_due: false, link: "https://buy.stripe.com/5kQbJ3csm21Xfz64DhdjO00?client_reference_id=aivw-c-00000000000000000000000000000000", pledged, ticket: "AIVW-2026-6909", price_label: "pay what you want, 5 EUR suggested" });
+const coffee = (): Coffee => ({ paid_year: paidYear, reminder_due: false, link: "https://buy.stripe.com/5kQbJ3csm21Xfz64DhdjO00", pledged, ticket: "AIVW-2026-6909", price_label: "pay what you want, 5 EUR suggested" });
 const summary = (i: Item): Summary => ({
   id: i.id, name: i.name, provider: i.provider.kind, kind: i.kind, expires_at: i.expires_at,
   next_rotation: i.policy.auto_rotate ? iso(nextOf[i.id] ?? 30 * DAY) : null, sink_count: i.sinks.length, auto_rotate: i.policy.auto_rotate,
@@ -123,12 +123,9 @@ export async function mockCall(req: Record<string, any>): Promise<Record<string,
     case "get_settings": return { type: "settings", ...settings };
     case "set_settings": settings = req["settings"]; return { type: "ok" };
     case "coffee_status": return { type: "coffee", ...coffee() };
-    case "coffee_check":
-      return { type: "coffee", ...coffee() };
-    case "coffee_receipt":
-      if (String(req["code"]).length < 8) return { type: "error", code: "bad_receipt", message: "This receipt code does not verify." };
+    case "coffee_mark_paid":
       paidYear = new Date().getFullYear();
-      return { type: "ok" };
+      return { type: "coffee", ...coffee() };
     case "audit_list": return { type: "audit", audit: audit(req["item"] ?? null) };
     case "sign_pledge": pledged = true; return { type: "ok" };
     case "init": return { type: "ok", kit: { secret_key: "A3-7KQ2M-9XW4T-PR8D6-F2HNC-5JV9Q", vault: "0193f2c4-8e1a-7b3d-9a52-4c6e1f0d2b77", device: "PAUL-LAPTOP", ticket: "AIVW-2026-6909" } };

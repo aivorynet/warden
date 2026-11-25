@@ -10,7 +10,7 @@ use daemon::Daemon;
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::State;
 
 type Shared<'a> = State<'a, Arc<Daemon>>;
 
@@ -75,39 +75,6 @@ fn open_url(url: String) -> Result<(), String> {
     open::that(url).map_err(|e| e.to_string())
 }
 
-/// Apply a receipt code from a deep link and tell the UI.
-async fn apply_receipt(app: AppHandle, d: Arc<Daemon>, code: String) {
-    let result = d
-        .call(serde_json::json!({ "type": "coffee_receipt", "code": code }))
-        .await;
-    let ok = matches!(&result, Ok(v) if v["type"] != "error");
-    let message = match result {
-        Ok(v) if v["type"] == "error" => v["message"].as_str().unwrap_or("rejected").to_owned(),
-        Ok(_) => "Receipt applied. Thank you for the coffee.".to_owned(),
-        Err(e) => e,
-    };
-    tray::show_main(&app);
-    let _ = app.emit(
-        "receipt-result",
-        serde_json::json!({ "ok": ok, "message": message }),
-    );
-}
-
-fn receipt_code(url: &str) -> Option<String> {
-    let rest = url.strip_prefix("aivory-warden://receipt/")?;
-    let code = rest.trim_matches('/');
-    (!code.is_empty() && code.len() < 4096).then(|| code.to_owned())
-}
-
-fn handle_urls(app: &AppHandle, urls: impl IntoIterator<Item = String>) {
-    for u in urls {
-        if let Some(code) = receipt_code(&u) {
-            let d = app.state::<Arc<Daemon>>().inner().clone();
-            tauri::async_runtime::spawn(apply_receipt(app.clone(), d, code));
-        }
-    }
-}
-
 fn main() {
     let daemon = match Daemon::discover() {
         Ok(d) => Arc::new(d),
@@ -117,11 +84,9 @@ fn main() {
         }
     };
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             tray::show_main(app);
-            handle_urls(app, argv);
         }))
-        .plugin(tauri_plugin_deep_link::init())
         .manage(daemon)
         .invoke_handler(tauri::generate_handler![
             app_state,
@@ -138,16 +103,6 @@ fn main() {
             }
         })
         .setup(|app| {
-            use tauri_plugin_deep_link::DeepLinkExt;
-            #[cfg(any(windows, target_os = "linux"))]
-            let _ = app.deep_link().register_all();
-            let handle = app.handle().clone();
-            app.deep_link().on_open_url(move |event| {
-                handle_urls(&handle, event.urls().into_iter().map(|u| u.to_string()));
-            });
-            if let Ok(Some(urls)) = app.deep_link().get_current() {
-                handle_urls(app.handle(), urls.into_iter().map(|u| u.to_string()));
-            }
             tray::build(app.handle())?;
             Ok(())
         })
@@ -156,19 +111,4 @@ fn main() {
             eprintln!("aivory-warden-desktop: {e}");
             std::process::exit(1);
         });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::receipt_code;
-
-    #[test]
-    fn receipt_link_parses() {
-        assert_eq!(
-            receipt_code("aivory-warden://receipt/abc-123").as_deref(),
-            Some("abc-123")
-        );
-        assert_eq!(receipt_code("aivory-warden://receipt/"), None);
-        assert_eq!(receipt_code("https://x/receipt/abc"), None);
-    }
 }

@@ -3,6 +3,7 @@ import { h, replace } from "./dom.js";
 import { call, isTauri, listDevices, listMcpClients, openUrl, unpairMcpClient } from "./api.js";
 import { placePicker, type PlaceType } from "./place.js";
 import { S, PROVIDERS, btn, cta, errText, eyebrow, field, fmtDate, providerLabel, simpleBar, slugify, toast, topbar } from "./view.js";
+import { buyCoffee } from "./coffee.js";
 import { opts, sinkView } from "./screens_tokens.js";
 import type { Coffee, Device, McpClient, Settings, Sink, Summary } from "./types.js";
 import { DAY } from "./types.js";
@@ -169,50 +170,10 @@ export async function settings(root: HTMLElement): Promise<void> {
   const pairBox = h("div", { class: "stack" });
   const pairName = h("input", { class: "inp", placeholder: "Claude Code" });
   const pairCaps = h("select", { class: "sel" }, h("option", { value: "use" }, "USE"), h("option", { value: "admin" }, "USE + POLICY"));
-  const receipt = h("input", { placeholder: "aivw-receipt-\u2026", spellcheck: false });
   const year = new Date().getFullYear();
   const status = coffee.paid_year === year ? "Paid. Thank you." : "Not paid yet";
-  const rcErr = h("div", { class: "err", role: "alert" });
-  const payMsg = h("div", { class: "mono small steel", role: "status" });
-  // CoffeeCheck arms the payment check in the daemon. It must come before the link opens.
-  const buyCoffee = async () => {
-    payMsg.textContent = "";
-    try {
-      const fresh = (await call({ type: "coffee_check" })) as unknown as Coffee;
-      if (fresh.paid_year === year) {
-        toast("ok", "COFFEE", "Paid. Thank you.");
-        await settings(root);
-        return;
-      }
-      await openUrl(fresh.link);
-      payMsg.textContent = "Warden checks for the payment. Press Check payment after you pay.";
-    } catch (e) {
-      rcErr.textContent = errText(e);
-    }
-  };
-  const checkPayment = async () => {
-    payMsg.textContent = "";
-    try {
-      const fresh = (await call({ type: "coffee_check" })) as unknown as Coffee;
-      if (fresh.paid_year === year) {
-        toast("ok", "COFFEE", "Paid. Thank you.");
-        await settings(root);
-      } else {
-        payMsg.textContent = "Not seen yet";
-      }
-    } catch (e) {
-      rcErr.textContent = errText(e);
-    }
-  };
-  const applyReceipt = async () => {
-    rcErr.textContent = "";
-    try {
-      await call({ type: "coffee_receipt", code: receipt.value.trim() });
-      toast("ok", "RECEIPT APPLIED", "Thank you for the coffee.");
-      await settings(root);
-    } catch (e) {
-      rcErr.textContent = errText(e);
-    }
+  const payFlow = async () => {
+    if (await buyCoffee()) await settings(root);
   };
   const capsLabel = (c: string[]) => (c.includes("mcp_admin") ? "USE + POLICY" : "USE");
   const reloadClients = () => void settings(root);
@@ -267,13 +228,8 @@ export async function settings(root: HTMLElement): Promise<void> {
         h("span", { class: "disp mid" }, status),
         coffee.ticket ? h("span", { class: "mono small steel" }, `TICKET ${coffee.ticket}`) : null,
         h("p", { class: "lead small" }, "Warden is free and open source. One coffee a year stops the weekly note. Rotation works the same either way."),
-        cta("Buy a coffee", () => void buyCoffee()),
-        btn("Check payment", () => void checkPayment()),
-        payMsg,
+        cta("Buy a coffee", () => void payFlow()),
         coffee.price_label ? h("span", { class: "mono small steel" }, coffee.price_label.toUpperCase()) : null,
-        field("RECEIPT CODE", receipt, "lg"),
-        btn("Apply receipt", () => void applyReceipt()),
-        rcErr,
         h("label", { class: "check" }, h("input", { type: "checkbox", checked: cur.coffee_reminder, onchange: (e: Event) => void save({ coffee_reminder: (e.target as HTMLInputElement).checked }) }), "Show the weekly coffee note"),
       ),
     ),

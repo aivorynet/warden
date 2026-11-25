@@ -17,8 +17,7 @@ warden-ipc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }
-tauri-plugin-deep-link = "2"
-tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-single-instance = "2"
 tokio = { workspace = true, features = ["process", "time", "io-util"] }
 chrono.workspace = true
 open = "5"

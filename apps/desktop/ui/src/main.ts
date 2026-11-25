@@ -83,10 +83,6 @@ async function boot(): Promise<void> {
   if (isTauri) {
     await listen("navigate", (to: string) => S.go(to));
     await listen("state-changed", () => void S.refresh().then(render));
-    await listen("receipt-result", (p: { ok: boolean; message: string }) => {
-      toast(p.ok ? "ok" : "bad", p.ok ? "COFFEE" : "RECEIPT REJECTED", p.message);
-      void S.refresh().then(render);
-    });
     setInterval(() => {
       if (["", "tokens", "inbox"].includes(route())) void S.refresh().then(render);
     }, 20000);

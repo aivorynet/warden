@@ -103,11 +103,11 @@ What we do not promise:
 
 ## Coffee
 
-Warden is free and MIT licensed. There is no account, no trial and no locked feature. If it saves you time, buy the developer a coffee. Pay what you want; 5 EUR is the suggestion. Use Settings > Buy a coffee in the desktop app, or run `awd coffee --pay`. Warden opens a personal pay link that holds a random claim id.
+Warden is free and MIT licensed. There is no account, no trial and no locked feature. If it saves you time, buy the developer a coffee. Pay what you want; 5 EUR is the suggestion. Use Settings > Buy a coffee in the desktop app, or run `awd coffee --pay`. The donation link is https://buy.stripe.com/5kQbJ3csm21Xfz64DhdjO00 .
 
-Until you have paid once in the current year, Warden shows one short note per week, in the desktop app and on stderr of the CLI when it runs in a terminal. After you pay, Warden fetches the signed receipt by itself and the note stops for that year. Press Check payment in Settings or run `awd coffee --check` to check at once. You can also paste a receipt code in Settings or run `awd coffee --receipt <code>`. Warden verifies the receipt offline.
+Warden uses an honor system, like Hopover. Warden cannot see your payment, so it trusts you. After the link opens, Warden asks "Did it go through?". Answer yes, and the note stops for that year. To mark a payment without a browser, run `awd coffee --paid`. Warden makes no network call for this.
 
-A payment from the bare Stripe link has no claim id. It cannot stop the note automatically. Use the button in the app or `awd coffee --pay`. You can also turn the note off with `awd settings set coffee-reminder off`. The note never appears in `mcp` or native host mode, and it never blocks a rotation.
+Until you have paid once in the current year, Warden shows one short note per week, in the desktop app and on stderr of the CLI when it runs in a terminal. On 1 January the note starts again. You can turn the note off with `awd settings set coffee-reminder off`. The note never appears in `mcp` or native host mode, and it never blocks a rotation.
 
 ## Build from source
 

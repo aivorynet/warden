@@ -2,7 +2,7 @@ Aivory Warden - status 2026-11-24
 
 Done (all gates green on Windows: fmt, clippy -D warnings, test, deny):
 - Crates: warden-core, -vault, -providers, -sinks, -engine, -ipc, -mcp, -coffee, -native-host, aivory-warden (bin + awd).
-- apps/desktop (Tauri 2), extension/ (Edge MV3), services/coffee-receipt (Cloudflare Worker).
+- apps/desktop (Tauri 2), extension/ (Edge MV3).
 - packaging/ (install.sh, install.ps1, Homebrew, winget, Scoop), release pipelines (GitHub + GitLab).
 - Design: docs/design/*.dc.html (canvas https://claude.ai/artifact/DA5MivX4oYKYj9nXKWw25a).
 
@@ -11,16 +11,15 @@ Verified:
 - Linux: clippy + tests green in rust:1.95 container. Windows: all gates, e2e with GitLab/AWS mocks,
   MCP stdio smoke (scripts/smoke-mcp.ps1, docs/verification/), service install via HKCU Run.
 
-Coffee claim (2026-11-24, docs/coffee-claim.md):
-- Daemon side done: claim id, personal link, Request::CoffeeCheck, scheduler poll, awd coffee --pay/--check,
-  desktop Buy a coffee + Check payment, notes without the bare link.
-- Open: Worker (services/coffee-receipt) must serve GET /coffee/claim/<id>; set PRODUCTION_PUBLIC_KEY.
+Coffee honor system (2026-11-25, docs/coffee.md):
+- Done: Request::CoffeeMarkPaid (Full only), awd coffee / --pay / --paid, desktop Buy a coffee dialog.
+- Removed: receipt verify, claim poll, Worker (services/coffee-receipt), deep link, PRODUCTION_PUBLIC_KEY.
+- Paul: take the Worker down in Cloudflare (aivory.net/coffee/* route, CLAIMS KV, secrets).
 
 Open:
 - macOS unverified. Linux other-user IPC test, SFTP test and systemd install run only in GitLab CI.
-- Tauri app not run interactively (tray, deep link). Edge extension not loaded in a real Edge yet.
+- Tauri app not run interactively (tray). Edge extension not loaded in a real Edge yet.
 - No real provider API called yet. v2 UI controls: docs/verification/ui-controls.md.
 - Not built: run_with_secret MCP tool.
-- Paul owns: Stripe link + RECEIPT_SIGNING_KEY + PRODUCTION_PUBLIC_KEY (warden-coffee), Worker deploy,
-  GitHub repo aivorynet/warden (+ homebrew-tap, scoop-bucket), signing secrets, security@aivory.net.
+- Paul owns: GitHub repo aivorynet/warden (+ homebrew-tap, scoop-bucket), signing secrets, security@aivory.net.
 - Push every branch to GitLab (origin) and, once it exists, to GitHub.

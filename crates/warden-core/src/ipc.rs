@@ -177,11 +177,11 @@ pub struct InboxEntry {
 /// Coffee reminder state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CoffeeInfo {
-    /// Year of the valid receipt, if any.
+    /// Year that the user confirmed as paid, if any.
     pub paid_year: Option<i32>,
     /// A reminder is due now.
     pub reminder_due: bool,
-    /// Link to pay.
+    /// Link to pay: the bare donation link.
     pub link: String,
     /// The user signed the coffee pledge.
     #[serde(default)]
@@ -348,15 +348,10 @@ pub enum Request {
     },
     /// Read the coffee reminder state.
     CoffeeStatus,
-    /// Enter a coffee receipt code.
-    CoffeeReceipt {
-        /// Receipt code.
-        code: String,
-    },
-    /// Arm the coffee claim poll, check the claim once now, and return the coffee state.
+    /// Mark the current year as paid and return the coffee state.
     ///
-    /// The capability rule is the same as for `CoffeeReceipt`: `Full` only.
-    CoffeeCheck,
+    /// The daemon trusts the user (honor system). Capability: `Full` only.
+    CoffeeMarkPaid,
     /// Record the signed coffee pledge.
     SignPledge {
         /// Name of the user who signs.
@@ -523,10 +518,10 @@ mod tests {
             assert!(!cap.allows(&unpair));
             assert!(!cap.allows(&update));
             assert!(!cap.allows(&Request::SignPledge { user: "u".into() }));
-            assert!(!cap.allows(&Request::CoffeeCheck));
+            assert!(!cap.allows(&Request::CoffeeMarkPaid));
         }
         assert!(Capability::Full.allows(&unpair));
-        assert!(Capability::Full.allows(&Request::CoffeeCheck));
+        assert!(Capability::Full.allows(&Request::CoffeeMarkPaid));
         let handover = Request::Handover {
             item: None,
             to: DeviceId::new(),

@@ -2,6 +2,7 @@
 import { h, replace } from "./dom.js";
 import { call, initVault, openUrl, signPledge, startService } from "./api.js";
 import { S, cta, btn, errText, field, mug, simpleBar, toast, eyebrow, lockup } from "./view.js";
+import { buyCoffee } from "./coffee.js";
 import type { Kit } from "./types.js";
 
 const SOURCE = "https://github.com/aivorynet/warden";
@@ -49,7 +50,7 @@ export function pledge(root: HTMLElement): void {
         h("p", {}, "Hi, Paul here. I built Warden because expired tokens kept breaking my deploys at the worst time. So go ahead and use it. Free and open source. Every feature, no trial, no locked buttons."),
         h("p", {}, "The catch: you promise me a coffee once a year, when Warden saves you from your first expired token. Pay what you want. I will remind you after your first rotation and then once a week. Politely."),
         h("p", {}, "If Warden never saves you a minute, you owe me nothing."),
-        h("div", { class: "foot" }, go, h("a", { href: SOURCE, onclick: (e: Event) => { e.preventDefault(); void openUrl(SOURCE); } }, "Read the source first")),
+        h("div", { class: "foot" }, go, btn("Buy a coffee", () => void buyCoffee()), h("a", { href: SOURCE, onclick: (e: Event) => { e.preventDefault(); void openUrl(SOURCE); } }, "Read the source first")),
         err,
       ),
       h(
@@ -69,7 +70,7 @@ export function pledge(root: HTMLElement): void {
           h("span", { class: "price" }, "PAY WHAT YOU WANT · €5 SUGGESTED"),
           h("div", { class: "sign" }, h("span", {}, "SIGNED"), signed),
         ),
-        h("p", {}, "No account, no trial. Warden checks a signed receipt offline, and it never stops a rotation. Open source under the MIT licence."),
+        h("p", {}, "No account, no trial. Warden cannot see a payment, so it trusts you, and it never stops a rotation. Open source under the MIT licence."),
       ),
     ),
   );

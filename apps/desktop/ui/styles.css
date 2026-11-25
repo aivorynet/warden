@@ -195,3 +195,6 @@ td .sub { font-family: var(--mono); font-size: 12px; color: var(--steel); }
 .page .chips + .grid2 { padding-top: 18px; }
 input.chk, .row input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--ink); margin: 0; }
 .kit .sk .v { font-size: 18px; }
+.coffee-dlg { max-width: 420px; padding: 24px; border: 2px solid var(--ink); background: var(--paper); color: var(--ink); }
+.coffee-dlg::backdrop { background: rgba(0, 0, 0, 0.45); }
+.coffee-dlg .foot { display: flex; gap: 12px; margin-top: 16px; }

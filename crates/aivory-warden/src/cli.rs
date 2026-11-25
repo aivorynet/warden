@@ -108,6 +108,12 @@ enum Cmd {
         /// Receipt code.
         #[arg(long)]
         receipt: Option<String>,
+        /// Open the personal pay link in the browser. Warden then watches for the payment.
+        #[arg(long, conflicts_with_all = ["receipt", "check"])]
+        pay: bool,
+        /// Check for a payment now.
+        #[arg(long, conflicts_with = "receipt")]
+        check: bool,
     },
     /// Install or remove the background service.
     Service {
@@ -487,7 +493,11 @@ async fn run(ctx: &Ctx, cmd: Cmd) -> Code {
         Cmd::Devices => devices(ctx).await,
         Cmd::Audit { name, limit } => audit(ctx, name, limit).await,
         Cmd::Exec(a) => exec(ctx, a),
-        Cmd::Coffee { receipt } => coffee(ctx, receipt).await,
+        Cmd::Coffee {
+            receipt,
+            pay,
+            check,
+        } => coffee(ctx, receipt, pay, check).await,
         Cmd::Service { name, cmd } => {
             if let Some(n) = name {
                 service::set_task_name(&n);
@@ -1635,14 +1645,20 @@ fn exec(ctx: &Ctx, a: ExecArgs) -> Code {
 
 // ---------------------------------------------------------------- coffee
 
-async fn coffee(ctx: &Ctx, receipt: Option<String>) -> Code {
+async fn coffee(ctx: &Ctx, receipt: Option<String>, pay: bool, check: bool) -> Code {
     let mut c = connect(&ctx.paths).await?;
     if let Some(code) = receipt {
         call(&mut c, Request::CoffeeReceipt { code }).await?;
         println!("\u{2713} {THANKS_TEXT}");
         return Ok(0);
     }
-    let Response::Coffee(i) = call(&mut c, Request::CoffeeStatus).await? else {
+    // CoffeeCheck arms the payment watch in the daemon, so it runs before the link opens.
+    let req = if pay || check {
+        Request::CoffeeCheck
+    } else {
+        Request::CoffeeStatus
+    };
+    let Response::Coffee(i) = call(&mut c, req).await? else {
         return Err(unexpected());
     };
     if let Some(y) = i.paid_year {
@@ -1650,20 +1666,21 @@ async fn coffee(ctx: &Ctx, receipt: Option<String>) -> Code {
         println!("{THANKS_TEXT}");
         return Ok(0);
     }
-    println!("\u{2615} no receipt for this year. Ticket {}.", i.ticket);
-    println!("Price: {}. Link: {}", i.price_label, i.link);
-    if !interactive() {
+    if check {
+        println!("\u{2615} no payment seen yet. Ticket {}.", i.ticket);
+        println!("Warden checks again for 7 days after `awd coffee --pay`.");
         return Ok(0);
     }
-    if let Err(e) = open::that(&i.link) {
-        println!("Cannot open the browser: {e}. Open the link by hand.");
+    println!("\u{2615} no coffee for this year yet. Ticket {}.", i.ticket);
+    println!("Price: {}. Your link: {}", i.price_label, i.link);
+    if pay {
+        if let Err(e) = open::that(&i.link) {
+            println!("Cannot open the browser: {e}. Open the link by hand.");
+        }
+        println!("Warden detects the payment by itself. Run `awd coffee --check` to check now.");
+    } else {
+        println!("Run `awd coffee --pay` to pay. Warden then detects the payment by itself.");
     }
-    let code = ask("Receipt code (empty to skip)", None, true)?;
-    if code.trim().is_empty() {
-        return Ok(0);
-    }
-    call(&mut c, Request::CoffeeReceipt { code }).await?;
-    println!("\u{2713} {THANKS_TEXT}");
     Ok(0)
 }
 

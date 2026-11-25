@@ -25,6 +25,7 @@ warden-engine.workspace = true
 warden-ipc.workspace = true
 warden-mcp.workspace = true
 warden-coffee.workspace = true
+warden-verify.workspace = true
 warden-native-host.workspace = true
 async-trait.workspace = true
 blake3 = "1"

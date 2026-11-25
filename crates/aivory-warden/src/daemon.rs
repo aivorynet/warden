@@ -181,24 +181,15 @@ impl Daemon {
 
     /// Open the vault with the key from the OS keychain, if one is cached.
     pub async fn try_auto_unlock(&self) {
+        if self.paths.soft_lock_file().exists() {
+            tracing::info!("vault is soft locked, waiting for a quick unlock");
+            return;
+        }
         let Ok(dir) = self.vault_dir() else { return };
         let Some(vid) = vault_id_of(&dir) else { return };
-        let mut key = None;
-        if self.keychain_enabled {
-            match keychain::load(&vid) {
-                Ok(k) => key = k,
-                Err(e) => tracing::warn!("keychain read failed: {e}"),
-            }
-        }
-        if key.is_none()
-            && let Some(kf) = &self.key_file
-        {
-            match kf.load() {
-                Ok(k) => key = k,
-                Err(e) => tracing::warn!("key file read failed: {e}"),
-            }
-        }
-        let Some(key) = key else { return };
+        let Some(key) = self.load_cached_key(&vid) else {
+            return;
+        };
         let local = self.paths.device_dir();
         let opened =
             tokio::task::spawn_blocking(move || Vault::open_with_key(&dir, &key, &local)).await;
@@ -212,7 +203,119 @@ impl Daemon {
         }
     }
 
+    /// Read the cached vault key: the OS keychain first, then the key file.
+    fn load_cached_key(&self, vid: &warden_core::VaultId) -> Option<zeroize::Zeroizing<[u8; 32]>> {
+        let mut key = None;
+        if self.keychain_enabled {
+            match keychain::load(vid) {
+                Ok(k) => key = k,
+                Err(e) => tracing::warn!("keychain read failed: {e}"),
+            }
+        }
+        if key.is_none()
+            && let Some(kf) = &self.key_file
+        {
+            match kf.load() {
+                Ok(k) => key = k,
+                Err(e) => tracing::warn!("key file read failed: {e}"),
+            }
+        }
+        key
+    }
+
+    /// Remove every cached key and the soft lock marker.
+    fn forget_cached_key(&self) {
+        let _ = std::fs::remove_file(self.paths.soft_lock_file());
+        if self.keychain_enabled
+            && let Ok(dir) = self.vault_dir()
+            && let Some(vid) = vault_id_of(&dir)
+            && let Err(e) = keychain::clear(&vid)
+        {
+            tracing::warn!("cannot clear the keychain entry: {e}");
+        }
+        if let Some(kf) = &self.key_file
+            && let Err(e) = kf.clear()
+        {
+            tracing::warn!("cannot remove the key file: {e}");
+        }
+    }
+
+    /// Append one entry to the device-local audit log. A failure is logged and ignored.
+    fn local_audit(&self, action: &str, detail: &str) {
+        use std::io::Write;
+        let entry = AuditEntry {
+            at: self.clock.now(),
+            device: read_device_id(&self.paths).unwrap_or(DeviceId(uuid::Uuid::nil())),
+            item: None,
+            action: action.into(),
+            detail: detail.into(),
+        };
+        let path = self.paths.local_audit_file();
+        let res = (|| -> std::io::Result<()> {
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            let mut f = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)?;
+            writeln!(f, "{}", serde_json::to_string(&entry)?)
+        })();
+        if let Err(e) = res {
+            tracing::warn!("cannot write the local audit log: {e}");
+        }
+    }
+
+    fn read_local_audit(&self) -> Vec<AuditEntry> {
+        std::fs::read_to_string(self.paths.local_audit_file())
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect()
+    }
+
+    async fn unlock_quick(&self) -> Response {
+        if !self.settings().quick_unlock {
+            self.local_audit("quick_unlock_refused", "quick unlock is off");
+            return error("quick_unlock_off", "quick unlock is off");
+        }
+        if self.current().is_some() {
+            return Response::Ok;
+        }
+        let dir = match self.vault_dir() {
+            Ok(d) => d,
+            Err(e) => return err_resp(&e),
+        };
+        let key = vault_id_of(&dir).and_then(|vid| self.load_cached_key(&vid));
+        let Some(key) = key else {
+            self.local_audit("quick_unlock_refused", "no cached key");
+            return error(
+                "no_cached_key",
+                "no cached key on this device: unlock with the password",
+            );
+        };
+        let local = self.paths.device_dir();
+        let opened =
+            tokio::task::spawn_blocking(move || Vault::open_with_key(&dir, &key, &local)).await;
+        let vault = match opened {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => {
+                self.local_audit("quick_unlock_refused", "cached key does not open the vault");
+                return error("unlock_failed", e.to_string());
+            }
+            Err(e) => return error("internal", e.to_string()),
+        };
+        match self.install(vault, false).await {
+            Ok(()) => {
+                self.local_audit("quick_unlock", "vault unlocked with the OS user check");
+                Response::Ok
+            }
+            Err(e) => err_resp(&e),
+        }
+    }
+
     async fn install(&self, vault: Vault, cache_key: bool) -> Result<()> {
+        let _ = std::fs::remove_file(self.paths.soft_lock_file());
         let device = vault.device_id();
         if cache_key && self.keychain_enabled {
             let key = vault.export_vault_key();
@@ -315,23 +418,22 @@ impl Daemon {
         }
     }
 
-    fn lock_vault(&self) -> Response {
+    /// Lock the vault. With quick unlock on and `forget` false, the key stays cached (soft
+    /// lock) and a marker file keeps the daemon locked after a restart. Otherwise the cached
+    /// key is removed, so a locked daemon stays locked after a restart.
+    fn lock_vault(&self, forget: bool) -> Response {
         let taken = lock(&self.unlocked).take();
         if let Some(u) = &taken {
             u.engine.set_locked(true);
         }
-        // A locked daemon stays locked after a restart, so remove the cached key.
-        if self.keychain_enabled
-            && let Ok(dir) = self.vault_dir()
-            && let Some(vid) = vault_id_of(&dir)
-            && let Err(e) = keychain::clear(&vid)
-        {
-            tracing::warn!("cannot clear the keychain entry: {e}");
-        }
-        if let Some(kf) = &self.key_file
-            && let Err(e) = kf.clear()
-        {
-            tracing::warn!("cannot remove the key file: {e}");
+        if !forget && self.settings().quick_unlock {
+            if let Err(e) = std::fs::write(self.paths.soft_lock_file(), b"soft lock") {
+                // Without the marker a restart would open the vault again: forget the key.
+                tracing::warn!("cannot write the soft lock marker: {e}");
+                self.forget_cached_key();
+            }
+        } else {
+            self.forget_cached_key();
         }
         Response::Ok
     }
@@ -739,6 +841,10 @@ impl Daemon {
                 ),
             })
             .collect();
+        if item.is_none() {
+            out.extend(self.read_local_audit());
+            out.sort_by_key(|e| e.at);
+        }
         let keep = limit as usize;
         if out.len() > keep {
             out.drain(..out.len() - keep);
@@ -766,10 +872,18 @@ impl Daemon {
         if s.default_interval.is_zero() {
             return error("bad_request", "default interval must be more than 0");
         }
+        if s.quick_unlock && !s.keychain_cache {
+            return error("bad_request", "quick unlock needs the keychain cache");
+        }
         if let Err(e) = store::save_settings(&self.paths, &s) {
             return err_resp(&e);
         }
+        let was_quick = self.settings().quick_unlock;
         *lock(&self.settings) = s;
+        // Quick unlock off while soft locked: lock behaves as before, so remove the key.
+        if was_quick && !s.quick_unlock && self.paths.soft_lock_file().exists() {
+            self.forget_cached_key();
+        }
         if let Some(u) = self.current() {
             u.engine.set_settings(s);
         }
@@ -977,7 +1091,9 @@ impl Handler for Daemon {
                 password,
                 secret_key,
             } => self.unlock(password, secret_key).await,
-            Request::Lock => self.lock_vault(),
+            Request::Lock => self.lock_vault(false),
+            Request::LockForget => self.lock_vault(true),
+            Request::UnlockQuick => self.unlock_quick().await,
             Request::InboxList => match self.inbox.list() {
                 Ok(inbox) => Response::Inbox { inbox },
                 Err(e) => err_resp(&e),
@@ -1163,6 +1279,138 @@ mod tests {
             chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 11, 24, 10, 0, 0).unwrap(),
         ));
         d
+    }
+
+    /// A daemon with a fresh vault. The OS keychain is off; a key file is the cache.
+    async fn quick_daemon(dir: &std::path::Path) -> Daemon {
+        let paths = Paths::from_home(dir.to_path_buf());
+        let local = paths.device_dir();
+        let key_file = dir.join("key");
+        let (vault, sk) = Vault::create_with_params(
+            &paths.default_vault(),
+            "synthetic-password",
+            None,
+            "test",
+            &local,
+            warden_vault::KdfParams::new(64, 1, 1),
+        )
+        .unwrap();
+        drop(vault);
+        let mut d = test_daemon(dir).with_key_file(key_file);
+        d.keychain_enabled = false;
+        let r = d
+            .unlock(
+                SecretValue::new("synthetic-password"),
+                SecretValue::new(sk.to_string()),
+            )
+            .await;
+        assert!(matches!(r, Response::Ok));
+        d
+    }
+
+    fn code(r: &Response) -> &str {
+        match r {
+            Response::Error { code, .. } => code,
+            _ => "ok",
+        }
+    }
+
+    fn quick(on: bool) -> Settings {
+        Settings {
+            quick_unlock: on,
+            ..Settings::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn quick_unlock_is_off_by_default_and_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = quick_daemon(dir.path()).await;
+        assert!(!d.settings().quick_unlock);
+        // Lock behaves as before: the key is removed.
+        assert!(matches!(d.lock_vault(false), Response::Ok));
+        assert!(d.current().is_none());
+        assert!(!dir.path().join("key").exists());
+        assert_eq!(code(&d.unlock_quick().await), "quick_unlock_off");
+        assert!(d.current().is_none());
+    }
+
+    #[tokio::test]
+    async fn quick_unlock_needs_the_keychain_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = quick_daemon(dir.path()).await;
+        let bad = Settings {
+            keychain_cache: false,
+            ..quick(true)
+        };
+        assert_eq!(code(&d.set_settings(bad)), "bad_request");
+        assert!(!d.settings().quick_unlock);
+    }
+
+    #[tokio::test]
+    async fn soft_lock_keeps_the_key_and_quick_unlock_opens() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = quick_daemon(dir.path()).await;
+        assert!(matches!(d.set_settings(quick(true)), Response::Ok));
+        assert!(matches!(d.lock_vault(false), Response::Ok));
+        assert!(d.current().is_none());
+        assert!(dir.path().join("key").exists(), "soft lock keeps the key");
+        // A restart must not open a soft locked vault.
+        d.try_auto_unlock().await;
+        assert!(d.current().is_none());
+        assert!(matches!(d.unlock_quick().await, Response::Ok));
+        assert!(d.current().is_some());
+        assert!(!d.paths.soft_lock_file().exists());
+        let log = d.read_local_audit();
+        assert!(log.iter().any(|e| e.action == "quick_unlock"));
+    }
+
+    #[tokio::test]
+    async fn cancelled_or_failed_check_leaves_the_vault_locked() {
+        use warden_verify::{FakeVerifier, VerifyError, gate};
+        let dir = tempfile::tempdir().unwrap();
+        let d = quick_daemon(dir.path()).await;
+        assert!(matches!(d.set_settings(quick(true)), Response::Ok));
+        d.lock_vault(false);
+        for e in [
+            VerifyError::Cancelled,
+            VerifyError::Failed("x".into()),
+            VerifyError::Unavailable("x".into()),
+        ] {
+            let mut sent = false;
+            let r = gate(&FakeVerifier::failing(e), None, "r", || sent = true);
+            assert!(r.is_err() && !sent, "no request after a failed check");
+            assert!(d.current().is_none());
+        }
+        // A passing check lets the client send the request.
+        let mut sent = false;
+        gate(&FakeVerifier::passing(), None, "r", || sent = true).unwrap();
+        assert!(sent);
+        assert!(matches!(d.unlock_quick().await, Response::Ok));
+    }
+
+    #[tokio::test]
+    async fn lock_forget_removes_the_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = quick_daemon(dir.path()).await;
+        assert!(matches!(d.set_settings(quick(true)), Response::Ok));
+        assert!(matches!(d.lock_vault(true), Response::Ok));
+        assert!(!dir.path().join("key").exists());
+        assert_eq!(code(&d.unlock_quick().await), "no_cached_key");
+        assert!(d.current().is_none());
+        let log = d.read_local_audit();
+        assert!(log.iter().any(|e| e.action == "quick_unlock_refused"));
+    }
+
+    #[tokio::test]
+    async fn quick_unlock_off_while_soft_locked_forgets_the_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = quick_daemon(dir.path()).await;
+        assert!(matches!(d.set_settings(quick(true)), Response::Ok));
+        d.lock_vault(false);
+        assert!(matches!(d.set_settings(quick(false)), Response::Ok));
+        assert!(!dir.path().join("key").exists());
+        assert!(!d.paths.soft_lock_file().exists());
     }
 
     #[test]

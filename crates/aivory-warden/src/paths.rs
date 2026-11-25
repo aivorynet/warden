@@ -74,6 +74,18 @@ impl Paths {
         self.config.join("device-id")
     }
 
+    /// Marker file: the vault is soft locked (the key stays cached, but the daemon must not
+    /// open the vault at start). Quick unlock removes it.
+    pub fn soft_lock_file(&self) -> PathBuf {
+        self.config.join("soft-locked")
+    }
+
+    /// Device-local audit log (one JSON line per entry). It holds events that are not item
+    /// changes, for example a quick unlock.
+    pub fn local_audit_file(&self) -> PathBuf {
+        self.data.join("audit-local.jsonl")
+    }
+
     /// Rotation journal.
     pub fn journal_dir(&self) -> PathBuf {
         self.data.join("journal")

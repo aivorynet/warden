@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<!-- polkit action for Aivory Warden quick unlock. `pkcheck` asks the user to authenticate
+     (password, or a face or fingerprint PAM module such as howdy or fprintd).
+     The .deb installs this file to /usr/share/polkit-1/actions/. -->
+<policyconfig>
+  <vendor>Aivory</vendor>
+  <vendor_url>https://aivory.net</vendor_url>
+  <action id="net.aivory.warden.unlock">
+    <description>Unlock the Aivory Warden vault</description>
+    <message>Authenticate to unlock the Aivory Warden vault</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

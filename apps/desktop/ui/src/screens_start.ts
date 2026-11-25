@@ -1,6 +1,6 @@
 /** First-run and gate screens: pledge, unlock, create vault, Emergency Kit, daemon down. */
 import { h, replace } from "./dom.js";
-import { call, initVault, openUrl, signPledge, startService } from "./api.js";
+import { call, initVault, openUrl, quickUnlock, quickUnlockInfo, signPledge, startService } from "./api.js";
 import { S, cta, btn, errText, field, mug, simpleBar, toast, eyebrow, lockup } from "./view.js";
 import { buyCoffee } from "./coffee.js";
 import type { Kit } from "./types.js";
@@ -99,6 +99,27 @@ function unlockForm(): HTMLElement {
   const sk = h("input", { class: "mono", spellcheck: false, autocomplete: "off", required: true });
   const stay = h("input", { type: "checkbox", checked: true });
   const err = h("div", { class: "err", role: "alert" });
+  // The quick unlock button shows only when the setting is on and the OS check exists.
+  const quickBox = h("div", {});
+  void (async () => {
+    try {
+      const [cur, info] = await Promise.all([call({ type: "get_settings" }), quickUnlockInfo()]);
+      if (!cur["quick_unlock"] || !info.available) return;
+      const label = info.label === "Windows Hello" || info.label === "Touch ID" ? info.label : "system login";
+      quickBox.append(
+        cta(`Unlock with ${label}`, async () => {
+          err.textContent = "";
+          try {
+            await quickUnlock();
+            await S.refresh();
+            S.go("tokens");
+          } catch (ex) {
+            err.textContent = `${errText(ex)} Use your password instead.`;
+          }
+        }),
+      );
+    } catch { /* no quick unlock: the password form stays */ }
+  })();
   return h(
     "form",
     {
@@ -110,7 +131,7 @@ function unlockForm(): HTMLElement {
           pw.value = "";
           sk.value = "";
           const cur = await call({ type: "get_settings" });
-          if (cur["keychain_cache"] !== stay.checked) await call({ type: "set_settings", settings: { default_interval: cur["default_interval"], coffee_reminder: cur["coffee_reminder"], keychain_cache: stay.checked } });
+          if (cur["keychain_cache"] !== stay.checked) await call({ type: "set_settings", settings: { default_interval: cur["default_interval"], coffee_reminder: cur["coffee_reminder"], keychain_cache: stay.checked, quick_unlock: stay.checked && cur["quick_unlock"] } });
           await S.refresh();
           S.go("tokens");
         } catch (ex) {
@@ -122,6 +143,7 @@ function unlockForm(): HTMLElement {
     h("h1", { class: "disp" }, "Unlock"),
     h("p", { class: "lead" }, "Your password and your Secret Key open the vault. Nobody else has them, Aivory too."),
     h("div", { class: "bar" }),
+    quickBox,
     field("MASTER PASSWORD", pw, "lg"),
     field("SECRET KEY", sk, "lg"),
     h("label", { class: "check" }, stay, "Stay unlocked for background rotation"),

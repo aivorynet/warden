@@ -59,6 +59,39 @@ async fn daemon_call(d: Shared<'_>, request: Value) -> Result<Value, String> {
     d.call(request).await
 }
 
+/// Whether the OS user check exists on this device, and its name for the button.
+#[derive(Debug, Serialize)]
+struct QuickInfo {
+    available: bool,
+    label: &'static str,
+}
+
+#[tauri::command]
+async fn quick_unlock_info() -> Result<QuickInfo, String> {
+    tokio::task::spawn_blocking(|| {
+        let v = warden_verify::platform();
+        QuickInfo {
+            available: v.available(),
+            label: v.label(),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Run the OS user check on the main window, then ask the daemon for a quick unlock.
+#[tauri::command]
+async fn quick_unlock(d: Shared<'_>, window: tauri::WebviewWindow) -> Result<Value, String> {
+    #[cfg(windows)]
+    let hwnd = window.hwnd().ok().map(|h| h.0 as isize);
+    #[cfg(not(windows))]
+    let hwnd = {
+        let _ = &window;
+        None
+    };
+    d.quick_unlock(hwnd).await
+}
+
 #[tauri::command]
 async fn sign_pledge(d: Shared<'_>) -> Result<(), String> {
     d.sign_pledge().await
@@ -158,6 +191,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             app_state,
             daemon_call,
+            quick_unlock_info,
+            quick_unlock,
             sign_pledge,
             init_vault,
             start_service,

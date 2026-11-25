@@ -79,6 +79,11 @@ pub struct Settings {
     pub coffee_reminder: bool,
     /// Cache the vault key in the OS keychain.
     pub keychain_cache: bool,
+    /// Unlock with the OS user check (Windows Hello, Touch ID, polkit) instead of the password.
+    ///
+    /// Only valid when `keychain_cache` is on. Lock then keeps the cached key (soft lock).
+    #[serde(default)]
+    pub quick_unlock: bool,
 }
 
 impl Default for Settings {
@@ -87,6 +92,7 @@ impl Default for Settings {
             default_interval: Duration::from_secs(30 * DAY),
             coffee_reminder: true,
             keychain_cache: true,
+            quick_unlock: false,
         }
     }
 }
@@ -190,6 +196,14 @@ mod tests {
         let mut i = item();
         i.policy.auto_rotate = false;
         assert_eq!(next_rotation(&i, &Settings::default(), t(0)), None);
+    }
+
+    #[test]
+    fn quick_unlock_is_off_by_default_and_old_json_loads() {
+        assert!(!Settings::default().quick_unlock);
+        let old = r#"{"default_interval":2592000,"coffee_reminder":true,"keychain_cache":true}"#;
+        let s: Settings = serde_json::from_str(old).unwrap();
+        assert!(!s.quick_unlock && s.keychain_cache);
     }
 
     #[test]

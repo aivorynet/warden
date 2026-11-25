@@ -40,8 +40,12 @@ enum Cmd {
     Init(InitArgs),
     /// Unlock the vault in the daemon.
     Unlock,
-    /// Lock the vault in the daemon and remove the cached key.
-    Lock,
+    /// Lock the vault in the daemon. With quick unlock on, the cached key stays.
+    Lock {
+        /// Also remove the cached key, so the next unlock needs the password.
+        #[arg(long)]
+        forget: bool,
+    },
     /// Show the daemon state and the tokens.
     Status,
     /// Add a token.
@@ -321,7 +325,7 @@ enum PolicyCmd {
 enum SettingsCmd {
     /// Show the settings.
     Show,
-    /// Change one setting: default-interval, coffee-reminder, keychain-cache.
+    /// Change one setting: default-interval, coffee-reminder, keychain-cache, quick-unlock.
     Set {
         /// Setting name.
         key: String,
@@ -493,7 +497,10 @@ async fn run(ctx: &Ctx, cmd: Cmd) -> Code {
     match cmd {
         Cmd::Init(a) => init(ctx, a).await,
         Cmd::Unlock => unlock(ctx).await,
-        Cmd::Lock => simple(ctx, Request::Lock, "vault locked").await,
+        Cmd::Lock { forget: false } => simple(ctx, Request::Lock, "vault locked").await,
+        Cmd::Lock { forget: true } => {
+            simple(ctx, Request::LockForget, "vault locked, cached key removed").await
+        }
         Cmd::Status => status(ctx).await,
         Cmd::Add(a) => add(ctx, a).await,
         Cmd::List => list(ctx).await,
@@ -937,8 +944,52 @@ async fn init(ctx: &Ctx, a: InitArgs) -> Code {
     Ok(0)
 }
 
+/// Try the OS user check and a quick unlock. Return true when the vault is unlocked.
+///
+/// Any other outcome (flag off, no terminal, no check, cancelled, refused) returns false, so
+/// the caller falls back to the password. Scripts that set `WARDEN_PASSWORD` skip the check.
+async fn quick_attempt(c: &mut Client) -> bool {
+    if !interactive() || std::env::var_os("WARDEN_PASSWORD").is_some() {
+        return false;
+    }
+    let Ok(Response::Settings(s)) = c.call(Request::GetSettings).await else {
+        return false;
+    };
+    if !s.quick_unlock {
+        return false;
+    }
+    let verifier = warden_verify::platform();
+    if !verifier.available() {
+        return false;
+    }
+    println!("Waiting for {}...", verifier.label());
+    let checked = tokio::task::spawn_blocking(move || {
+        verifier.verify(warden_verify::console_window(), "Unlock Aivory Warden")
+    })
+    .await;
+    match checked {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            eprintln!("{e}. Use the password.");
+            return false;
+        }
+        Err(_) => return false,
+    }
+    match call(c, Request::UnlockQuick).await {
+        Ok(_) => true,
+        Err(e) => {
+            eprintln!("{e}. Use the password.");
+            false
+        }
+    }
+}
+
 async fn unlock(ctx: &Ctx) -> Code {
     let mut c = connect(&ctx.paths).await?;
+    if quick_attempt(&mut c).await {
+        println!("\u{2713} vault unlocked");
+        return Ok(0);
+    }
     let password = prompt_secret("WARDEN_PASSWORD", "Vault password: ", false)?;
     let sk = prompt_secret("WARDEN_SECRET_KEY", "Secret Key: ", false)?;
     call(
@@ -1395,7 +1446,26 @@ async fn settings(ctx: &Ctx, cmd: SettingsCmd) -> Code {
             match key.as_str() {
                 "default-interval" => s.default_interval = duration::parse(&value)?,
                 "coffee-reminder" => s.coffee_reminder = parse_on_off(&value)?,
-                "keychain-cache" => s.keychain_cache = parse_on_off(&value)?,
+                "keychain-cache" => {
+                    s.keychain_cache = parse_on_off(&value)?;
+                    if !s.keychain_cache {
+                        s.quick_unlock = false;
+                    }
+                }
+                "quick-unlock" => {
+                    s.quick_unlock = parse_on_off(&value)?;
+                    if s.quick_unlock {
+                        let v = warden_verify::platform();
+                        if !v.available() {
+                            return Err(cfg_err(
+                                "no system check (Windows Hello, Touch ID, polkit) on this device",
+                            ));
+                        }
+                        if !s.keychain_cache {
+                            return Err(cfg_err("quick-unlock needs keychain-cache on"));
+                        }
+                    }
+                }
                 _ => return Err(cfg_err(format!("unknown setting `{key}`"))),
             }
             call(&mut c, Request::SetSettings { settings: s }).await?;
@@ -1406,6 +1476,7 @@ async fn settings(ctx: &Ctx, cmd: SettingsCmd) -> Code {
     println!("default-interval  {}", duration::format(s.default_interval));
     println!("coffee-reminder   {}", onoff(s.coffee_reminder));
     println!("keychain-cache    {}", onoff(s.keychain_cache));
+    println!("quick-unlock      {}", onoff(s.quick_unlock));
     Ok(0)
 }
 

@@ -24,3 +24,11 @@ Open:
 - Paul owns: GitHub repo aivorynet/warden (+ homebrew-tap, scoop-bucket), signing secrets, security@aivory.net.
 - Push every branch to GitLab (origin) and, once it exists, to GitHub.
 - MCP setup done (branch mcp-setup): awd mcp-setup, desktop screen "Connect your AI tools". Not run in the real app. Windsurf and VS Code paths: see commit message.
+
+Quick unlock (branch quick-unlock, 2026-11-25):
+- Done: Settings.quick_unlock, Request::UnlockQuick + LockForget, soft lock marker, local audit log, warden-verify crate
+  (Windows Hello, Touch ID, pkcheck), awd unlock/lock --forget/settings quick-unlock, desktop button + toggle, polkit policy in the .deb.
+- Verified on Windows: unit tests, build. NOT exercised: the Windows Hello prompt itself (no interactive run).
+- macOS: only `cargo check --target aarch64-apple-darwin -p warden-verify`. aivory-warden and the Tauri crate cannot cross-check here (C deps: ring, objc2-exception-helper).
+- Linux: built, not run. Check the pkcheck prompt on a real desktop (and a polkit agent in a plain terminal).
+- Open: no e2e test for the CLI quick path (it needs a real OS check).

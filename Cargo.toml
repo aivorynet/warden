@@ -9,6 +9,7 @@ members = [
     "crates/warden-ipc",
     "crates/warden-mcp",
     "crates/warden-coffee",
+    "crates/warden-verify",
     "crates/aivory-warden",
     "crates/warden-native-host",
     "apps/desktop/src-tauri",
@@ -23,6 +24,7 @@ default-members = [
     "crates/warden-ipc",
     "crates/warden-mcp",
     "crates/warden-coffee",
+    "crates/warden-verify",
     "crates/aivory-warden",
     "crates/warden-native-host",
 ]
@@ -43,6 +45,7 @@ warden-engine = { path = "crates/warden-engine" }
 warden-ipc = { path = "crates/warden-ipc" }
 warden-mcp = { path = "crates/warden-mcp" }
 warden-coffee = { path = "crates/warden-coffee" }
+warden-verify = { path = "crates/warden-verify" }
 warden-native-host = { path = "crates/warden-native-host" }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }

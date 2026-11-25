@@ -14,7 +14,7 @@ Verified:
 Coffee honor system (2026-11-25, docs/coffee.md):
 - Done: Request::CoffeeMarkPaid (Full only), awd coffee / --pay / --paid, desktop Buy a coffee dialog.
 - Removed: receipt verify, claim poll, Worker (services/coffee-receipt), deep link, PRODUCTION_PUBLIC_KEY.
-- Paul: take the Worker down in Cloudflare (aivory.net/coffee/* route, CLAIMS KV, secrets).
+- Done 2026-11-25: Worker, CLAIMS KV, Stripe webhook and local key deleted. Paul: remove GitLab variable RECEIPT_SIGNING_KEY.
 
 Open:
 - macOS unverified. Linux other-user IPC test, SFTP test and systemd install run only in GitLab CI.

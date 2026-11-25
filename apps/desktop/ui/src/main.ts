@@ -3,6 +3,7 @@ import { S, errText, toast } from "./view.js";
 import * as start from "./screens_start.js";
 import * as tok from "./screens_tokens.js";
 import * as setup from "./screens_setup.js";
+import { connect } from "./screens_connect.js";
 import type { Kit } from "./types.js";
 
 const root = document.getElementById("app") as HTMLElement;
@@ -62,6 +63,7 @@ async function render(): Promise<void> {
       case "unlock": return start.unlock(root, isTauri ? undefined : SAMPLE_KIT);
       case "init": return start.init(root);
       case "kit": if (!isTauri && !S.kit) S.kit = SAMPLE_KIT; return start.kit(root);
+      case "connect": return await connect(root);
       case "down": return start.down(root);
       case "detail": {
         let id = arg;

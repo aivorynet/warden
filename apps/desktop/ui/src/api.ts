@@ -1,5 +1,5 @@
 import { mockApp, mockCall } from "./mock.js";
-import type { AppState, Device, Kit, McpClient } from "./types.js";
+import type { AiClient, AppState, ConnectResult, Device, Kit, McpClient } from "./types.js";
 
 type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
 type Listen = (event: string, cb: (e: { payload: unknown }) => void) => Promise<() => void>;
@@ -44,7 +44,15 @@ export const listMcpClients = async (): Promise<McpClient[]> =>
 export const unpairMcpClient = async (id: string): Promise<void> => {
   await call({ type: "unpair", id });
 };
-export const listDevices = async (): Promise<Device[]> => (await call<{ devices: Device[] }>({ type: "list_devices" })).devices;
+/** AI tools that Warden can connect to its MCP server, installed ones first. */
+export const mcpSetupList = (): Promise<AiClient[]> => (isTauri ? invoke("mcp_setup_list") : mockCall({ type: "mcp_setup_list" }).then((r) => r["clients"] as AiClient[]));
+/** Add the Warden MCP server to the given clients. One result per client. */
+export const mcpSetupConnect = (ids: string[]): Promise<ConnectResult[]> =>
+  isTauri ? invoke("mcp_setup_connect", { ids }) : mockCall({ type: "mcp_setup_connect", ids }).then((r) => r["results"] as ConnectResult[]);
+/** Remove the Warden entry from one client and unpair it. */
+export const mcpSetupRemove = (id: string): Promise<void> =>
+  isTauri ? invoke("mcp_setup_remove", { id }) : mockCall({ type: "mcp_setup_remove", id }).then(() => undefined);
+export const listDevices =async (): Promise<Device[]> => (await call<{ devices: Device[] }>({ type: "list_devices" })).devices;
 export const openUrl = (url: string): Promise<void> => {
   if (isTauri) return invoke("open_url", { url });
   window.open(url, "_blank", "noopener");

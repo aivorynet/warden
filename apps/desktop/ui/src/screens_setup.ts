@@ -4,6 +4,7 @@ import { call, isTauri, listDevices, listMcpClients, openUrl, unpairMcpClient } 
 import { placePicker, type PlaceType } from "./place.js";
 import { S, PROVIDERS, btn, cta, errText, eyebrow, field, fmtDate, providerLabel, simpleBar, slugify, toast, topbar } from "./view.js";
 import { buyCoffee } from "./coffee.js";
+import { aiToolsList } from "./screens_connect.js";
 import { opts, sinkView } from "./screens_tokens.js";
 import type { Coffee, Device, McpClient, Settings, Sink, Summary } from "./types.js";
 import { DAY } from "./types.js";
@@ -158,6 +159,7 @@ export async function settings(root: HTMLElement): Promise<void> {
   S.coffee = coffee;
   const clients: McpClient[] = await listMcpClients().catch(() => []);
   const devices: Device[] = await listDevices().catch(() => []);
+  const aiTools = await aiToolsList(() => void settings(root));
   const save = async (patch: Partial<Settings>) => {
     Object.assign(cur, patch);
     try {
@@ -201,6 +203,8 @@ export async function settings(root: HTMLElement): Promise<void> {
           ...devices.map((d) => row(`${d.name}${d.id === S.app?.status?.device_id ? " \u00B7 this device" : ""}`, d.last_seen ? `last change ${fmtDate(d.last_seen)}` : "no change yet", h("span", { class: `stamp sm${d.is_rotator_for > 0 ? " accent" : ""}` }, `ROTATOR \u00B7 ${d.is_rotator_for}`))),
         ),
         h("span", { class: "label" }, "MCP CLIENTS"),
+        h("span", { class: "hint" }, "Connect your AI tools. Warden adds its MCP server and pairs each tool by itself."),
+        aiTools,
         h(
           "div",
           { class: "rows" },

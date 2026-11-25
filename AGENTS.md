@@ -19,6 +19,7 @@ Read this file before you change anything in this repo.
 | `warden-ipc` | Unix socket / named pipe, peer checks, pairing |
 | `warden-mcp` | stdio MCP server |
 | `warden-coffee` | Honor-system paid year, weekly cadence |
+| `warden-verify` | OS user check for quick unlock: trait, fake, Windows Hello, Touch ID, polkit |
 | `aivory-warden` | Binary `aivory-warden` and alias `awd` |
 
 `warden-core` types and traits are frozen. Change them only with the owner approval.
@@ -34,7 +35,7 @@ Every change passes these gates before you report it as done.
 | Licenses | `cargo deny check` (when `cargo-deny` is installed) |
 
 - Fix every warning.
-- The workspace lints deny `unsafe_code`. Only these Windows FFI modules may allow it, each with SAFETY comments: `warden-ipc/src/os/windows.rs` (pipe DACL, SID check), `warden-sinks/src/broadcast.rs` (WM_SETTINGCHANGE), `warden-sinks/src/winacl.rs` (DACL copy). Add no other.
+- The workspace lints deny `unsafe_code`. Only these Windows FFI modules may allow it, each with SAFETY comments: `warden-ipc/src/os/windows.rs` (pipe DACL, SID check), `warden-sinks/src/broadcast.rs` (WM_SETTINGCHANGE), `warden-sinks/src/winacl.rs` (DACL copy), `warden-verify/src/windows_hello.rs` (UserConsentVerifier interop), `warden-verify/src/macos.rs` (LocalAuthentication, compiled only, not run). Add no other.
 - Write rustdoc on every public item.
 
 ## Secrets

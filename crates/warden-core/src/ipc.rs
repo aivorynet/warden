@@ -288,7 +288,17 @@ pub enum Request {
         secret_key: SecretValue,
     },
     /// Lock the vault.
+    ///
+    /// With `Settings::quick_unlock` on, the cached key stays (soft lock). With it off, the
+    /// daemon removes the cached key.
     Lock,
+    /// Lock the vault and remove the cached key, whatever `Settings::quick_unlock` says.
+    LockForget,
+    /// Unlock the vault with the key from the cache of the daemon.
+    ///
+    /// The client runs the OS user check first. No key travels over IPC. The daemon refuses
+    /// when `Settings::quick_unlock` is off or no cached key exists.
+    UnlockQuick,
     /// List pending inbox entries.
     InboxList,
     /// Add a captured token to the inbox.
@@ -500,6 +510,8 @@ mod tests {
             policy: RotationPolicy::default()
         }));
         assert!(Capability::Full.allows(&Request::Lock));
+        assert!(Capability::Full.allows(&Request::UnlockQuick));
+        assert!(Capability::Full.allows(&Request::LockForget));
         let unpair = Request::Unpair { id: "x".into() };
         let update = Request::UpdateItem {
             item: ItemId::new(),
@@ -519,6 +531,8 @@ mod tests {
             assert!(!cap.allows(&update));
             assert!(!cap.allows(&Request::SignPledge { user: "u".into() }));
             assert!(!cap.allows(&Request::CoffeeMarkPaid));
+            assert!(!cap.allows(&Request::UnlockQuick));
+            assert!(!cap.allows(&Request::LockForget));
         }
         assert!(Capability::Full.allows(&unpair));
         assert!(Capability::Full.allows(&Request::CoffeeMarkPaid));

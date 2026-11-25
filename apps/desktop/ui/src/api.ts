@@ -37,7 +37,15 @@ export const appState = (): Promise<AppState> => (isTauri ? invoke("app_state") 
 export const signPledge = (): Promise<void> => (isTauri ? invoke("sign_pledge") : mockCall({ type: "sign_pledge", user: "preview" }).then(() => undefined));
 export const initVault = (password: string, deviceName: string): Promise<Kit> =>
   isTauri ? invoke("init_vault", { password, deviceName }) : mockCall({ type: "init" }).then((r) => r["kit"] as Kit);
-export const startService = (): Promise<void> => (isTauri ? invoke("start_service") : Promise.resolve());
+/** Whether the OS user check exists on this device, and its name for the button. */
+export type QuickInfo = { available: boolean; label: string };
+export const quickUnlockInfo = (): Promise<QuickInfo> => (isTauri ? invoke("quick_unlock_info") : Promise.resolve({ available: true, label: "Windows Hello" }));
+/** Run the OS user check in the app, then unlock. A cancelled check throws an ApiError. */
+export async function quickUnlock(): Promise<void> {
+  const resp = (isTauri ? await invoke<Record<string, any>>("quick_unlock") : await mockCall({ type: "unlock_quick" })) as Record<string, any>;
+  if (resp["type"] === "error") throw new ApiError(String(resp["code"]), String(resp["message"]));
+}
+export const startService =(): Promise<void> => (isTauri ? invoke("start_service") : Promise.resolve());
 /** Paired clients that are not Full (CLI and desktop manage their own tokens). */
 export const listMcpClients = async (): Promise<McpClient[]> =>
   (await call<{ clients: McpClient[] }>({ type: "list_clients" })).clients.filter((c) => !c.capabilities.includes("full"));

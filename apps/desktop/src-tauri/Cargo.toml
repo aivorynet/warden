@@ -14,6 +14,7 @@ tauri-build = { version = "2", features = [] }
 aivory-warden = { path = "../../../crates/aivory-warden" }
 warden-core.workspace = true
 warden-ipc.workspace = true
+warden-verify.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }

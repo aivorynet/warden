@@ -1,6 +1,6 @@
 /** Add wizard and settings. */
 import { h, replace } from "./dom.js";
-import { call, isTauri, listDevices, listMcpClients, openUrl, unpairMcpClient } from "./api.js";
+import { call, isTauri, listDevices, quickUnlockInfo, listMcpClients, openUrl, unpairMcpClient } from "./api.js";
 import { placePicker, type PlaceType } from "./place.js";
 import { S, PROVIDERS, btn, cta, errText, eyebrow, field, fmtDate, providerLabel, simpleBar, slugify, toast, topbar } from "./view.js";
 import { buyCoffee } from "./coffee.js";
@@ -161,9 +161,21 @@ export async function settings(root: HTMLElement): Promise<void> {
   const save = async (patch: Partial<Settings>) => {
     Object.assign(cur, patch);
     try {
-      await call({ type: "set_settings", settings: { default_interval: cur.default_interval, coffee_reminder: cur.coffee_reminder, keychain_cache: cur.keychain_cache } });
+      if (!cur.keychain_cache) cur.quick_unlock = false;
+      await call({ type: "set_settings", settings: { default_interval: cur.default_interval, coffee_reminder: cur.coffee_reminder, keychain_cache: cur.keychain_cache, quick_unlock: cur.quick_unlock } });
+      if (patch.keychain_cache !== undefined) await settings(root);
     } catch (e) {
       toast("bad", "NOT SAVED", errText(e));
+    }
+  };
+  const quick = await quickUnlockInfo().catch(() => ({ available: false, label: "" }));
+  const lockForget = async () => {
+    try {
+      await call({ type: "lock_forget" });
+      await S.refresh();
+      S.go("unlock");
+    } catch (e) {
+      toast("bad", "NOT LOCKED", errText(e));
     }
   };
   const iv = h("select", { class: "sel", onchange: () => void save({ default_interval: Number(iv.value) * DAY }) }, ...opts([7, 14, 30, 90], Math.round(cur.default_interval / DAY), null).map(([v, l]) => h("option", { value: v, selected: v === String(Math.round(cur.default_interval / DAY)) }, l)));
@@ -192,7 +204,11 @@ export async function settings(root: HTMLElement): Promise<void> {
         h("span", { class: "label" }, "ROTATION"),
         h("div", { class: "rows" }, row("Default interval", "For each token without its own interval.", iv)),
         h("span", { class: "label" }, "SECURITY"),
-        h("div", { class: "rows" }, row("Keychain cache", "Off: rotations wait until you unlock.", h("input", { type: "checkbox", class: "chk", checked: cur.keychain_cache, onchange: (e: Event) => void save({ keychain_cache: (e.target as HTMLInputElement).checked }) }))),
+        h("div", { class: "rows" }, row("Keychain cache", "Off: rotations wait until you unlock.", h("input", { type: "checkbox", class: "chk", checked: cur.keychain_cache, onchange: (e: Event) => void save({ keychain_cache: (e.target as HTMLInputElement).checked }) })),
+          ...(quick.available && cur.keychain_cache
+            ? [row(`Unlock with ${quick.label}`, "Lock keeps the key on this device, and your fingerprint, face or PIN unlocks it. It stops a person at your keyboard. It does not stop malware that runs as you.", h("input", { type: "checkbox", class: "chk", checked: cur.quick_unlock, onchange: (e: Event) => void save({ quick_unlock: (e.target as HTMLInputElement).checked }) }))]
+            : []),
+          row("Lock and forget", "Locks the vault and removes the cached key. The next unlock needs your password.", btn("Lock and forget", () => void lockForget()))),
         h("span", { class: "label" }, "DEVICES"),
         h(
           "div",

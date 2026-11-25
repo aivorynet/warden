@@ -37,6 +37,17 @@ The trade-off:
 
 Hardware-backed storage (TPM, Secure Enclave) is not in v1.
 
+## Quick unlock
+
+Quick unlock is off by default (`awd settings set quick-unlock on`, or the toggle in the desktop settings). It is a gate and not encryption.
+
+- The vault key stays in the OS keychain cache, as before. The OS user check (Windows Hello, Touch ID, polkit) does not wrap or derive any key.
+- With quick unlock on, `awd lock` and Lock keep the cached key (soft lock). A marker file keeps the daemon locked after a restart. `awd lock --forget` and "Lock and forget" remove the key.
+- The client (desktop app or CLI) runs the OS check, then sends `Request::UnlockQuick`. The daemon reads the key from its own cache. No key travels over IPC. `UnlockQuick` needs the `Full` capability. The daemon refuses it when the setting is off or no cached key exists. Each use and each refusal writes an entry to the device-local audit log (`awd audit`).
+- It needs the keychain cache on. The option is hidden when no OS check exists (Windows 11 or later, macOS, or Linux with `pkcheck` and the polkit policy).
+- Protection claim: a person at your keyboard who does not have your face, finger or PIN cannot unlock the vault in the app or the CLI.
+- No protection against software that runs as your user. It can read the keychain directly, or send `UnlockQuick` itself with `cli.token`. The master password and the Secret Key still protect the synced copy and other devices.
+
 ## IPC authentication
 
 The daemon listens on a local endpoint. There is no network port and no HTTP.

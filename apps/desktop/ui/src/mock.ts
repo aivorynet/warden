@@ -40,7 +40,7 @@ function seed(): Item[] {
 }
 
 let items = seed();
-let settings: Settings = { default_interval: 30 * DAY, coffee_reminder: true, keychain_cache: true };
+let settings: Settings = { default_interval: 30 * DAY, coffee_reminder: true, keychain_cache: true, quick_unlock: false };
 let pledged = false;
 let paidYear: number | null = null;
 let inbox: InboxEntry[] = [
@@ -115,7 +115,7 @@ export async function mockCall(req: Record<string, any>): Promise<Record<string,
     }
     case "rotate_now": return { type: "ok" };
     case "delete_item": items = items.filter((i) => i.id !== req["item"]); return { type: "ok" };
-    case "unlock": case "lock": return { type: "ok" };
+    case "unlock": case "lock": case "lock_forget": case "unlock_quick": return { type: "ok" };
     case "inbox_list": return { type: "inbox", inbox };
     case "inbox_accept": inbox = inbox.filter((e) => e.id !== req["id"]); return { type: "added", item: uid(200) };
     case "inbox_reject": inbox = inbox.filter((e) => e.id !== req["id"]); return { type: "ok" };

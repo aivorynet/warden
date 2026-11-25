@@ -21,6 +21,7 @@ const ALLOWED: &[&str] = &[
     "delete_item",
     "unlock",
     "lock",
+    "lock_forget",
     "inbox_list",
     "inbox_accept",
     "inbox_reject",
@@ -78,6 +79,23 @@ impl Daemon {
         if !ALLOWED.contains(&kind) {
             return Err(format!("request `{kind}` is not allowed"));
         }
+        self.send(req).await
+    }
+
+    /// Run the OS user check, then send `UnlockQuick`. The webview cannot send `unlock_quick`
+    /// itself (it is not on the allow list), so it cannot skip the check. `hwnd` is the native
+    /// window handle of the main window.
+    pub async fn quick_unlock(&self, hwnd: Option<isize>) -> Result<Value, String> {
+        let verifier = warden_verify::platform();
+        tokio::task::spawn_blocking(move || verifier.verify(hwnd, "Unlock Aivory Warden"))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+        self.send(serde_json::json!({ "type": "unlock_quick" }))
+            .await
+    }
+
+    async fn send(&self, req: Value) -> Result<Value, String> {
         for attempt in 0..2 {
             let parsed: Request = serde_json::from_value(req.clone()).map_err(|e| e.to_string())?;
             // Take the connection out of the slot. The lock is free during the call, so a slow

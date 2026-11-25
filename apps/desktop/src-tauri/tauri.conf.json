@@ -25,6 +25,13 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.png", "icons/icon.ico"]
+    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/share/polkit-1/actions/net.aivory.warden.unlock.policy": "../../../packaging/linux/net.aivory.warden.unlock.policy"
+        }
+      }
+    }
   }
 }

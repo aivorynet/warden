@@ -42,6 +42,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+      - name: Linux packages for the keychain (libdbus)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
       - name: Build the CLI
         run: cargo build --release --locked --target ${{ matrix.target }} -p aivory-warden
       - name: Sign with Authenticode (skips without secrets)
@@ -136,15 +141,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     continue-on-error: true
     env:
-      # Optional. An empty value means unsigned.
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      # Tauri tries to import a certificate as soon as APPLE_CERTIFICATE is set, even to an
+      # empty value. So the Apple variables go only to the signed build step.
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
       - name: Check that the desktop app exists
@@ -173,8 +172,23 @@ jobs:
         if: steps.app.outputs.present == 'true'
         working-directory: apps/desktop
         run: npm ci
+      - name: Build the Tauri bundles (signed for macOS)
+        if: steps.app.outputs.present == 'true' && env.HAS_APPLE_CERT == 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: apps/desktop
+          args: --target ${{ matrix.target }} ${{ matrix.args }}
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: "desktop-[platform]-[arch]-[bundle]"
       - name: Build the Tauri bundles
-        if: steps.app.outputs.present == 'true'
+        if: steps.app.outputs.present == 'true' && env.HAS_APPLE_CERT != 'true'
         uses: tauri-apps/tauri-action@v0
         with:
           projectPath: apps/desktop

@@ -116,6 +116,14 @@ enum Cmd {
         #[arg(long)]
         paid: bool,
     },
+    /// Start the desktop app that sits next to this binary. The login entry of the Store
+    /// package uses it, because only this binary has a stable app alias there.
+    #[command(hide = true)]
+    OpenApp {
+        /// Start in the tray, without a window.
+        #[arg(long)]
+        hidden: bool,
+    },
     /// Install or remove the background service.
     Service {
         /// Autostart entry name on Windows (tests only).
@@ -525,6 +533,7 @@ async fn run(ctx: &Ctx, cmd: Cmd) -> Code {
         Cmd::Audit { name, limit } => audit(ctx, name, limit).await,
         Cmd::Exec(a) => exec(ctx, a),
         Cmd::Coffee { pay, paid } => coffee(ctx, pay, paid).await,
+        Cmd::OpenApp { hidden } => open_app(hidden),
         Cmd::Service { name, cmd } => {
             if let Some(n) = name {
                 service::set_task_name(&n);
@@ -1846,6 +1855,27 @@ fn coffee_note(paths: &Paths) {
 }
 
 // ---------------------------------------------------------------- service, extension
+
+fn open_app(hidden: bool) -> Code {
+    let name = if cfg!(windows) {
+        "aivory-warden-desktop.exe"
+    } else {
+        "aivory-warden-desktop"
+    };
+    let app = std::env::current_exe()?.with_file_name(name);
+    if !app.is_file() {
+        return Err(cfg_err(format!("{} not found", app.display())));
+    }
+    let mut c = std::process::Command::new(app);
+    if hidden {
+        c.arg("--hidden");
+    }
+    c.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    Ok(0)
+}
 
 fn service_cmd(cmd: ServiceCmd) -> Code {
     match cmd {

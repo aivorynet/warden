@@ -1,11 +1,11 @@
 # Build an unsigned MSIX for the Microsoft Store. Partner Center signs it on upload.
-# Usage: packaging\msix\build-msix.ps1 -Version 2026.11.0 -IdentityName AIVoryInc.AivoryWarden
+# Usage: packaging\msix\build-msix.ps1 -Version 2026.11.0
 # Build first: cargo build --release -p aivory-warden -p aivory-warden-desktop
 #              (cd apps\desktop && npm run build) for the UI.
 param(
   [Parameter(Mandatory)] [string] $Version,
-  # Values from Partner Center > Aivory Warden > Product identity.
-  [Parameter(Mandatory)] [string] $IdentityName,
+  # Values from Partner Center > AIVory Warden (9MZ0VQZ1V112) > Product identity.
+  [string] $IdentityName = "AIVoryInc.AIVoryWarden",
   [string] $Publisher = "CN=1E786547-45C5-4CB8-8218-99D720EF3558",
   [string] $PublisherDisplay = "AIVory",
   [string] $BinDir = "target\release",
@@ -26,7 +26,7 @@ $stage = Join-Path $OutDir "msix-stage"
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force "$stage\Assets" | Out-Null
 
-foreach ($exe in "aivory-warden-desktop.exe", "aivory-warden.exe", "awd.exe") {
+foreach ($exe in "aivory-warden-desktop.exe", "aivory-warden.exe") {
   $src = Join-Path $BinDir $exe
   if (-not (Test-Path $src)) { throw "$src missing. Run: cargo build --release -p aivory-warden -p aivory-warden-desktop" }
   Copy-Item $src $stage

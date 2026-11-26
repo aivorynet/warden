@@ -82,12 +82,15 @@ fn set_open_at_login(app: AppHandle, on: bool) -> Result<(), String> {
 const LOGIN_ENTRY: &str = "Aivory Warden";
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 
-/// The app alias of the desktop app when it runs from the Store package. The package path
-/// changes with each update, so the login entry must point at the alias.
+/// The app alias of the CLI when the desktop app runs from the Store package. The package
+/// path changes with each update, and only the CLI has an alias, so the login entry runs
+/// `aivory-warden open-app --hidden`.
 fn packaged_alias() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
+    let cli = std::env::current_exe()
+        .ok()?
+        .with_file_name("aivory-warden.exe");
     let local = std::env::var_os("LOCALAPPDATA")?;
-    aivory_warden::packaged::alias_for(&exe, std::path::Path::new(&local))
+    aivory_warden::packaged::alias_for(&cli, std::path::Path::new(&local))
 }
 
 fn reg(args: &[&str]) -> Result<std::process::Output, String> {
@@ -109,7 +112,7 @@ fn login_entry_exists() -> bool {
 fn set_login_entry(alias: Option<&std::path::Path>) -> Result<(), String> {
     let out = match alias {
         Some(a) => {
-            let cmd = format!("\"{}\" {}", a.display(), prefs::HIDDEN_FLAG);
+            let cmd = format!("\"{}\" open-app {}", a.display(), prefs::HIDDEN_FLAG);
             reg(&[
                 "add",
                 RUN_KEY,

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- MSIX manifest template for the Microsoft Store. build-msix.ps1 fills the placeholders.
      IDENTITY_NAME, PUBLISHER and PUBLISHER_DISPLAY come from Partner Center
-     (Aivory Warden > Product identity) after the name reservation. -->
+     (AIVory Warden, Store ID 9MZ0VQZ1V112 > Product identity) after the name reservation. -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
@@ -14,7 +14,7 @@
   <Identity Name="{{IDENTITY_NAME}}" Publisher="{{PUBLISHER}}" Version="{{VERSION}}" ProcessorArchitecture="x64" />
 
   <Properties>
-    <DisplayName>Aivory Warden</DisplayName>
+    <DisplayName>AIVory Warden</DisplayName>
     <PublisherDisplayName>{{PUBLISHER_DISPLAY}}</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
     <!-- Warden writes real per-user state that other programs read: the login entry of the
@@ -37,30 +37,21 @@
   <Applications>
     <Application Id="AivoryWarden" Executable="aivory-warden-desktop.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="Aivory Warden"
+        DisplayName="AIVory Warden"
         Description="Rotates your API tokens before they expire and updates every app that uses them."
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
       </uap:VisualElements>
-      <!-- App aliases in %LOCALAPPDATA%\Microsoft\WindowsApps keep one path over updates.
-           Warden writes these paths into the login entries, the native host manifest and the
-           MCP configs (crates/aivory-warden/src/packaged.rs). -->
+      <!-- The app alias %LOCALAPPDATA%\Microsoft\WindowsApps\aivory-warden.exe keeps one path over
+           updates. Warden writes it into the daemon login entry, the native host manifest and
+           the MCP configs (crates/aivory-warden/src/packaged.rs). The desktop login entry runs
+           "aivory-warden open-app" with the hidden flag. One alias per application is allowed. -->
       <Extensions>
         <uap3:Extension Category="windows.appExecutionAlias" Executable="aivory-warden.exe" EntryPoint="Windows.FullTrustApplication">
           <uap3:AppExecutionAlias>
             <desktop:ExecutionAlias Alias="aivory-warden.exe" />
-          </uap3:AppExecutionAlias>
-        </uap3:Extension>
-        <uap3:Extension Category="windows.appExecutionAlias" Executable="awd.exe" EntryPoint="Windows.FullTrustApplication">
-          <uap3:AppExecutionAlias>
-            <desktop:ExecutionAlias Alias="awd.exe" />
-          </uap3:AppExecutionAlias>
-        </uap3:Extension>
-        <uap3:Extension Category="windows.appExecutionAlias" Executable="aivory-warden-desktop.exe" EntryPoint="Windows.FullTrustApplication">
-          <uap3:AppExecutionAlias>
-            <desktop:ExecutionAlias Alias="aivory-warden-desktop.exe" />
           </uap3:AppExecutionAlias>
         </uap3:Extension>
       </Extensions>

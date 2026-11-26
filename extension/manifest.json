@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Save to Warden",
-  "version": "2026.11.0",
+  "version": "2026.11.1",
   "description": "Send a token from a provider page to your Aivory Warden inbox. Capture runs only when you click.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1hRmiHE8H8gz0OBBqw/G/uVlPlGSJbLzZnKfi6WXLzOlTv/H7d1SCK7H6zu0Ss9LIGRyhFbeOajdkWrVN6mRkw/uMNiYi/o405IgeTqfd4sgKkS/DIslewyxjjcgrENwed1PvehVkSVBDG3ltOHZaUCdCCj5ELrwP49NPhSXzvneh5txI2lP1AB2eSDfDxWwRE9WpYHS5GNsBM6ebr+yQJtzvDnwOiX0CrLeBOsPgJffdQxhgF4mdPpwvdDVeL/Cib9z6bCLTU99nAtyKQIS1ogb5WU8DgCpzzw8SoYwkDBTKLW/TqK/AVe9213Gl46QTCkOZTkc8zb+LPliO2kS3wIDAQAB",
   "minimum_chrome_version": "116",

@@ -130,3 +130,16 @@ PUBLISHED (2026-11-26, Paul approved):
 NEXT: first release tag (unsigned is possible; signing secrets optional), then Paul clicks "Submit for review"
 (the plugin cannot click on Web Store pages). Then Edge Add-ons, MCP directories, launch posts (see the pricing doc).
 - 2026-11-26: aivory.net/warden hero = direction C ("Set it once. It renews forever.", token timeline), from canvas https://claude.ai/artifact/DSEFoRo1CEAFgJLEGRrWX6; aivory-hugo c1cf30f on production. GitHub CI green on all 3 OS (run 45822656071).
+
+STORE + RELEASE (2026-11-26 afternoon):
+- v2026.11.0 release FAILED (Linux CLI libdbus, MSI major>255, empty Apple env). Tag left in place (deletion blocked).
+  Fixed in release.yml + tauri.conf (wix version 26.11.x). Released as v2026.11.1 (version bump everywhere).
+  NOTE: bump bundle.windows.wix.version (26.MM.patch) with every release.
+- Microsoft Store: product "AIVory Warden" reserved, Store ID 9MZ0VQZ1V112, identity AIVoryInc.AIVoryWarden,
+  publisher CN=1E786547-45C5-4CB8-8218-99D720EF3558. packaging/msix/ (build-msix.ps1 -Version X) builds an unsigned MSIX
+  (Partner Center signs). One app alias aivory-warden.exe (only one appExecutionAlias per Application);
+  desktop login entry = "<alias>" open-app --hidden (hidden CLI command). desktop6 write virtualization disabled +
+  rescap unvirtualizedResources (needs a justification in the submission). MSIX NOT tested installed yet.
+  Submission not started: the product overview page kept loading (new product provisioning).
+- Edge Add-ons: Partner Center account has no Microsoft Edge program; Paul must enroll (accept the agreement).
+- Chrome Web Store: draft; submit after the 2026.11.1 release is out.

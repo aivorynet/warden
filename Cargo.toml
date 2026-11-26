@@ -74,3 +74,10 @@ opt-level = 3
 lto = "thin"
 codegen-units = 4
 strip = true
+
+# Smaller binaries for the Microsoft Store MSIX (packaging/msix/build-msix.ps1 -BinDir target\store).
+[profile.store]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1

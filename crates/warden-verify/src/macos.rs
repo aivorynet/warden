@@ -40,9 +40,10 @@ impl Verifier for TouchIdVerifier {
             } else {
                 // SAFETY: the system passes a valid NSError pointer for the call of the block.
                 let code = unsafe { (*err).code() };
-                if code == LAError::UserCancel.0 || code == LAError::SystemCancel.0 {
-                    Err(VerifyError::Cancelled)
-                } else if code == LAError::AppCancel.0 {
+                if code == LAError::UserCancel.0
+                    || code == LAError::SystemCancel.0
+                    || code == LAError::AppCancel.0
+                {
                     Err(VerifyError::Cancelled)
                 } else {
                     Err(VerifyError::Failed(format!("LAError {code}")))

@@ -119,3 +119,13 @@ CHROME WEB STORE (2026-11-26):
 - The Claude in Chrome plugin cannot script Web Store pages. Give Paul values to paste; no OS mouse input.
 - Before "Submit for review": deploy aivory.net/warden-privacy and aivory.net/warden, make github.com/aivorynet/warden
   public, ship a Warden release that contains the store id. Then Edge Add-ons (free) with the same zip; add its id.
+
+PUBLISHED (2026-11-26, Paul approved):
+- main = dfa7a01 on GitLab (origin) and GitHub (remote "github", https://github.com/aivorynet/warden, public, topics set).
+  History secret scan clean (only fake glpat test tokens).
+- GitLab CI never runs: every job "stuck_pending_no_matching_runners" (no runner with the tags). GitHub Actions is the real CI.
+- README rewritten in the AIVory Code style (docs/images: hero, tokens, inbox, coffee-mug).
+- aivory.net/warden/ and /warden-privacy/ live (aivory-hugo 8e26462, production merge 27d9eae).
+- Chrome Web Store item cdmagnhjmcoacgpdhhpncannfgikcfob: draft saved by Paul, NOT submitted.
+NEXT: first release tag (unsigned is possible; signing secrets optional), then Paul clicks "Submit for review"
+(the plugin cannot click on Web Store pages). Then Edge Add-ons, MCP directories, launch posts (see the pricing doc).

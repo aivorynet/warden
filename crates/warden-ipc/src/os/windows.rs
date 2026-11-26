@@ -385,7 +385,11 @@ mod tests {
         // Protected DACL with exactly one allow entry, for the current user only.
         assert!(sddl.starts_with("D:P"), "{sddl}");
         assert_eq!(sddl.matches("(A;").count(), 1, "{sddl}");
-        assert!(sddl.contains(&my_sid().unwrap()), "{sddl}");
+        // SDDL writes well-known accounts as an alias: the built-in Administrator (RID 500,
+        // the user of CI runners) becomes "LA".
+        let me = my_sid().unwrap();
+        let alias = me.ends_with("-500") && sddl.contains(";;;LA)");
+        assert!(sddl.contains(&me) || alias, "{sddl}");
     }
 
     #[tokio::test]

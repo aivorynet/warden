@@ -49,7 +49,10 @@ async fn app_prefs(
 ) -> Result<AppPrefs, String> {
     Ok(AppPrefs {
         prefs: store.get(),
-        open_at_login: app.autolaunch().is_enabled().unwrap_or(false),
+        open_at_login: match packaged_alias() {
+            Some(_) => login_entry_exists(),
+            None => app.autolaunch().is_enabled().unwrap_or(false),
+        },
         service_installed: d.service_installed().await.unwrap_or(false),
     })
 }
@@ -68,8 +71,65 @@ fn set_app_prefs(app: AppHandle, store: State<'_, PrefStore>, prefs: Prefs) -> R
 /// Add or remove the login entry of the desktop app. It starts the app with `--hidden`.
 #[tauri::command]
 fn set_open_at_login(app: AppHandle, on: bool) -> Result<(), String> {
+    if let Some(alias) = packaged_alias() {
+        return set_login_entry(on.then_some(alias.as_path()));
+    }
     let l = app.autolaunch();
     if on { l.enable() } else { l.disable() }.map_err(|e| e.to_string())
+}
+
+/// Name of the login entry of the desktop app (the daemon uses `AivoryWarden`).
+const LOGIN_ENTRY: &str = "Aivory Warden";
+const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+
+/// The app alias of the desktop app when it runs from the Store package. The package path
+/// changes with each update, so the login entry must point at the alias.
+fn packaged_alias() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let local = std::env::var_os("LOCALAPPDATA")?;
+    aivory_warden::packaged::alias_for(&exe, std::path::Path::new(&local))
+}
+
+fn reg(args: &[&str]) -> Result<std::process::Output, String> {
+    let mut c = std::process::Command::new("reg");
+    c.args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000);
+    }
+    c.output().map_err(|e| e.to_string())
+}
+
+fn login_entry_exists() -> bool {
+    reg(&["query", RUN_KEY, "/v", LOGIN_ENTRY]).is_ok_and(|o| o.status.success())
+}
+
+/// Write (`Some(alias)`) or remove (`None`) the login entry. It starts the app in the tray.
+fn set_login_entry(alias: Option<&std::path::Path>) -> Result<(), String> {
+    let out = match alias {
+        Some(a) => {
+            let cmd = format!("\"{}\" {}", a.display(), prefs::HIDDEN_FLAG);
+            reg(&[
+                "add",
+                RUN_KEY,
+                "/v",
+                LOGIN_ENTRY,
+                "/t",
+                "REG_SZ",
+                "/d",
+                &cmd,
+                "/f",
+            ])?
+        }
+        None if !login_entry_exists() => return Ok(()),
+        None => reg(&["delete", RUN_KEY, "/v", LOGIN_ENTRY, "/f"])?,
+    };
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_owned())
+    }
 }
 
 /// Remove the background service. Rotation stops until the service runs again.

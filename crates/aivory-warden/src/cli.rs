@@ -1850,7 +1850,7 @@ fn coffee_note(paths: &Paths) {
 fn service_cmd(cmd: ServiceCmd) -> Code {
     match cmd {
         ServiceCmd::Install => {
-            let exe = std::env::current_exe()?;
+            let exe = crate::packaged::stable_exe(std::env::current_exe()?);
             service::install(&exe)?;
             println!("\u{2713} service installed and started");
             Ok(0)
@@ -1901,7 +1901,7 @@ fn extension(ctx: &Ctx, cmd: ExtensionCmd) -> Code {
                 let t = pairing.add("native-host", &[Capability::InboxWrite])?;
                 store::write_token(&ctx.paths.native_host_token(), &t)?;
             }
-            let exe = std::env::current_exe()?;
+            let exe = crate::packaged::stable_exe(std::env::current_exe()?);
             // Edge starts the host without our environment, so a launcher carries WARDEN_HOME.
             let target = match ctx.paths.home_override() {
                 Some(home) => native_host_launcher(&ctx.paths.config, &exe, home)?,

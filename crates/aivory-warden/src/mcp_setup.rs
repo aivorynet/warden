@@ -624,13 +624,14 @@ pub fn binary_path() -> Result<PathBuf> {
     let exe = std::env::current_exe()?;
     let sibling = exe.with_file_name(name);
     if sibling.is_file() {
-        return Ok(sibling);
+        // A Store install points the MCP config at the app alias, which survives updates.
+        return Ok(crate::packaged::stable_exe(sibling));
     }
     if matches!(
         exe.file_stem().and_then(|s| s.to_str()),
         Some("aivory-warden" | "awd")
     ) {
-        return Ok(exe);
+        return Ok(crate::packaged::stable_exe(exe));
     }
     let found = std::env::var_os("PATH").and_then(|p| {
         std::env::split_paths(&p)

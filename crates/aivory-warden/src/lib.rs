@@ -13,6 +13,7 @@ pub mod desktop;
 pub mod duration;
 pub mod mcp_setup;
 pub mod notify;
+pub mod packaged;
 pub mod paths;
 pub mod service;
 pub mod sinkspec;

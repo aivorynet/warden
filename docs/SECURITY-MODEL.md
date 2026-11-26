@@ -82,9 +82,12 @@ See [crates/warden-mcp/README.md](../crates/warden-mcp/README.md) for the full l
 - The proxy resolves the host, refuses private, loopback, link-local, CGNAT, multicast and unspecified addresses, and connects to the address it checked. It follows no redirects.
 - Limits: 1 MiB request body, 512 KiB response body (the proxy also cuts it so that its JSON form fits one 1 MiB IPC frame), 30 s.
 - The proxy replaces the secret in the response body and headers with `[REDACTED:aivw]`. It also covers the base64 (also inside a longer stream), base64url, hex, URL-encoded, JSON-escaped and HTML-escaped forms, and every run of 16 or more characters of the secret.
-- `request_rotation` allows 1 request per item per hour. Some items need confirmation in the desktop app.
-- `set_policy` needs `mcp-admin`. Turning rotation off, a longer interval (or one above 365 days) and a lead time of 0 need confirmation in the desktop app.
-- `run_with_secret` is off by default and needs an opt-in for each secret.
+- `request_rotation` allows 1 request per item per hour. The last rotation in the vault counts too, so a daemon restart does not reset the limit. Some items need confirmation in the desktop app.
+- `set_policy` needs `mcp-admin`. Turning rotation off, a longer interval (or one above 365 days), a lead time of 0 and a longer grace period need confirmation in the desktop app. An interval of 0 is refused for every client.
+- `save_secret` puts a new secret into the pending inbox. It needs the `inbox` capability in addition to `mcp` (`awd pair <name> --cap mcp --cap inbox`). `awd mcp-setup` grants both. The entry origin gets the prefix `mcp:`, so an agent cannot pose as a browser page. The user accepts each entry in the desktop app or with `awd inbox accept`.
+- `awd unpair` also ends open sessions of that client. The daemon checks the token on every request.
+- `http_request` writes method and host (no path, query or body) to the local audit log.
+- `run_with_secret` is not available yet.
 
 ## Edge extension
 

@@ -148,7 +148,7 @@ async fn gitlab_mock() -> MockServer {
     let admin = Arc::new(AtomicUsize::new(0));
     let proj = Arc::new(AtomicUsize::new(0));
     Mock::given(method("POST"))
-        .and(path("/personal_access_tokens/self/rotate"))
+        .and(path("/api/v4/personal_access_tokens/self/rotate"))
         .respond_with(move |_: &Request| {
             let n = admin.fetch_add(1, Ordering::SeqCst) + 1;
             ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -160,7 +160,7 @@ async fn gitlab_mock() -> MockServer {
         .mount(&s)
         .await;
     Mock::given(method("POST"))
-        .and(path("/projects/42/access_tokens"))
+        .and(path("/api/v4/projects/42/access_tokens"))
         .respond_with(move |_: &Request| {
             let n = proj.fetch_add(1, Ordering::SeqCst) + 1;
             ResponseTemplate::new(201).set_body_json(serde_json::json!({
@@ -177,7 +177,7 @@ async fn gitlab_mock() -> MockServer {
         .mount(&s)
         .await;
     Mock::given(method("GET"))
-        .and(path("/personal_access_tokens/self"))
+        .and(path("/api/v4/personal_access_tokens/self"))
         .respond_with(ResponseTemplate::new(200).set_body_json(
             serde_json::json!({"id": 101, "scopes": ["api"], "expires_at": "2027-01-31"}),
         ))
@@ -340,10 +340,19 @@ fn admin_token_once_then_warden_creates_rotates_and_revokes() {
     assert!(out.contains("created projci"), "{out}");
     assert!(read(&proj_env).contains("PROJ_TOKEN=glpat-proj-1"));
     assert!(read(&proj_toml).contains("glpat-proj-1"));
+    // The admin token cannot go while a derived token uses it.
+    let o = env1.run(&["rm", "gladmin", "--yes"]);
+    assert!(!o.status.success());
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&o.stdout),
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert!(text.contains("projci"), "{text}");
     let s = seen(&rt, &gl);
     let (_, _, body) = s
         .iter()
-        .find(|(m, p, _)| m == "POST" && p == "/projects/42/access_tokens")
+        .find(|(m, p, _)| m == "POST" && p == "/api/v4/projects/42/access_tokens")
         .expect("project token created");
     let v: serde_json::Value = serde_json::from_str(body).unwrap();
     assert!(v["name"].as_str().unwrap().starts_with("aivw_projci_"));
@@ -360,12 +369,16 @@ fn admin_token_once_then_warden_creates_rotates_and_revokes() {
     let s = seen(&rt, &gl);
     let (_, _, rot) = s
         .iter()
-        .find(|(_, p, _)| p == "/personal_access_tokens/self/rotate")
+        .find(|(_, p, _)| p == "/api/v4/personal_access_tokens/self/rotate")
         .expect("admin self-rotated");
     let v: serde_json::Value = serde_json::from_str(rot).unwrap();
     assert!(v["expires_at"].as_str().is_some_and(|d| d.len() == 10));
     wait_for("old derived token revoked", 20, || {
-        count(&seen(&rt, &gl), "DELETE", "/projects/42/access_tokens/201") == 1
+        count(
+            &seen(&rt, &gl),
+            "DELETE",
+            "/api/v4/projects/42/access_tokens/201",
+        ) == 1
     });
     wait_for("old AWS key deleted", 20, || {
         seen(&rt, &aws)
@@ -373,7 +386,11 @@ fn admin_token_once_then_warden_creates_rotates_and_revokes() {
             .any(|(_, _, b)| b.contains("Action=DeleteAccessKey") && b.contains("AKIAOLD"))
     });
     assert_eq!(
-        count(&seen(&rt, &gl), "DELETE", "/projects/42/access_tokens/202"),
+        count(
+            &seen(&rt, &gl),
+            "DELETE",
+            "/api/v4/projects/42/access_tokens/202"
+        ),
         0
     );
 
@@ -406,7 +423,7 @@ fn admin_token_once_then_warden_creates_rotates_and_revokes() {
         count(
             &seen(rt, &gl),
             "POST",
-            "/personal_access_tokens/self/rotate",
+            "/api/v4/personal_access_tokens/self/rotate",
         )
     };
     assert_eq!(rotations(&rt), 1);

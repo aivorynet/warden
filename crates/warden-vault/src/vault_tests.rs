@@ -129,9 +129,8 @@ fn truncated_last_op_of_own_device_is_quarantined() {
     v.put(item_with(ItemId::new(), "a"), secrets("s")).unwrap();
     // A crash left a half-written op 2 that the local state never recorded.
     let f1 = op_files(&e.dir).remove(0);
-    let raw = fs::read(&f1).unwrap();
     let f2 = f1.with_file_name("2.op");
-    fs::write(&f2, &raw[..raw.len() / 2]).unwrap();
+    fs::write(&f2, b"").unwrap();
     let files = [f1, f2];
     let mut v = Vault::open(&e.dir, "pw", &sk, &e.local).unwrap();
     assert_eq!(v.items().len(), 1);
@@ -384,4 +383,135 @@ fn header_kdf_parameters_are_bound_and_capped() {
     write_header(&e.dir, &h).unwrap();
     let err = Vault::open(&e.dir, "pw", &sk, &e.local).unwrap_err();
     assert!(err.to_string().contains("out of range"), "{err}");
+}
+
+#[test]
+fn second_create_does_not_overwrite_device_key() {
+    let e = env();
+    let (_v, _sk) = create(&e);
+    let before = fs::read(e.local.join("device.json")).unwrap();
+    let dir2 = e._t.path().join("vault2");
+    let r = Vault::create_with_params(&dir2, "pw", None, "other", &e.local, fast());
+    assert!(r.is_err());
+    assert_eq!(fs::read(e.local.join("device.json")).unwrap(), before);
+}
+
+#[test]
+fn lamport_and_seq_overflow_are_errors() {
+    let e = env();
+    let (mut v, _sk) = create(&e);
+    v.loaded.max_lamport = u64::MAX;
+    assert!(v.put(item_with(ItemId::new(), "a"), secrets("s")).is_err());
+    v.loaded.max_lamport = 0;
+    v.loaded.chains.insert(v.device_id, (u64::MAX, ZERO));
+    assert!(v.put(item_with(ItemId::new(), "a"), secrets("s")).is_err());
+}
+
+#[test]
+fn op_with_max_lamport_is_rejected_on_load() {
+    let e = env();
+    let (v, sk) = create(&e);
+    let item_id = ItemId::new();
+    let body = OpBody {
+        lamport: u64::MAX,
+        at: Utc::now(),
+        item: Some(item_with(item_id, "a")),
+        secrets: secrets("s"),
+    };
+    let pt = serde_json::to_vec(&body).unwrap();
+    let aad = op_aad(&v.header.vault_id, &item_id, &v.device_id, 1, &ZERO);
+    let (nonce, ct) = seal(&v.vault_key, &aad, &pt).unwrap();
+    let hash = op_hash(&aad, &nonce, &ct);
+    let sig = v.signing.sign(&hash);
+    let env_op = Envelope {
+        v: OP_VERSION,
+        device: v.device_id,
+        seq: 1,
+        item: item_id,
+        prev: Hex(ZERO.to_vec()),
+        nonce: Hex(nonce.to_vec()),
+        ct: Hex(ct),
+        sig: Hex(sig.to_bytes().to_vec()),
+    };
+    let path = e.dir.join("ops").join(v.device_id.to_string());
+    fs::create_dir_all(&path).unwrap();
+    fs::write(path.join("1.op"), serde_json::to_vec(&env_op).unwrap()).unwrap();
+    let err = Vault::open(&e.dir, "pw", &sk, &e.local).unwrap_err();
+    assert!(err.to_string().contains("lamport"), "{err}");
+}
+
+#[test]
+fn seen_entries_are_never_lowered() {
+    let e = env();
+    let (mut v, _sk) = create(&e);
+    v.put(item_with(ItemId::new(), "a"), secrets("s")).unwrap();
+    v.put(item_with(ItemId::new(), "b"), secrets("s")).unwrap();
+    let id = v.device_id.to_string();
+    assert_eq!(read_seen(&e.local).unwrap().devices[&id].seq, 2);
+    // A stale writer holds an older view and must not lower the entry.
+    let stale = Seen {
+        devices: BTreeMap::from([(
+            id.clone(),
+            SeenEntry {
+                seq: 1,
+                hash: Hex(vec![0; 32]),
+            },
+        )]),
+    };
+    merge_seen(&e.local, &stale).unwrap();
+    assert_eq!(read_seen(&e.local).unwrap().devices[&id].seq, 2);
+}
+
+#[test]
+fn non_empty_corrupt_own_last_op_is_an_error() {
+    let e = env();
+    let (mut v, sk) = create(&e);
+    v.put(item_with(ItemId::new(), "a"), secrets("s")).unwrap();
+    let f1 = op_files(&e.dir).remove(0);
+    let raw = fs::read(&f1).unwrap();
+    fs::write(&f1, &raw[..raw.len() / 2]).unwrap();
+    assert!(Vault::open(&e.dir, "pw", &sk, &e.local).is_err());
+    assert!(f1.exists());
+}
+
+#[test]
+fn enroll_rejects_same_id_with_other_key() {
+    let e = env();
+    let (mut v, _sk) = create(&e);
+    let id = DeviceId::new();
+    let k1 = SigningKey::from_bytes(&[1u8; 32]);
+    let k2 = SigningKey::from_bytes(&[2u8; 32]);
+    v.add_device(id, "p", k1.verifying_key().as_bytes())
+        .unwrap();
+    assert!(
+        v.add_device(id, "p", k2.verifying_key().as_bytes())
+            .is_err()
+    );
+    let d = v.devices().iter().find(|d| d.id == id).unwrap();
+    assert_eq!(d.public_key, hex_enc(k1.verifying_key().as_bytes()));
+}
+
+#[test]
+fn failed_join_removes_device_file() {
+    let e = env();
+    let (_v, sk) = create(&e);
+    let b_local = e._t.path().join("local-b");
+    // A directory in place of the lock file makes `enroll` fail.
+    fs::create_dir_all(b_local.join(LOCK_FILE)).unwrap();
+    assert!(Vault::join(&e.dir, "pw", &sk, "phone", &b_local).is_err());
+    assert!(!b_local.join("device.json").exists());
+}
+
+#[test]
+fn header_kdf_caps_are_tight() {
+    let e = env();
+    let (_v, _sk) = create(&e);
+    let h = read_header(&e.dir).unwrap();
+    for (m, t, p) in [(512 * 1024, 1, 1), (8, 17, 1), (8, 1, 17)] {
+        let mut x = h.clone();
+        x.kdf = KdfParams::new(m, t, p);
+        write_header(&e.dir, &x).unwrap();
+        let err = read_header(&e.dir).unwrap_err();
+        assert!(err.to_string().contains("out of range"), "{err}");
+    }
 }

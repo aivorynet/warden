@@ -39,7 +39,18 @@ struct TokenBody {
 
 fn parse_date(s: &Option<String>) -> Option<DateTime<Utc>> {
     let d = NaiveDate::parse_from_str(s.as_deref()?, "%Y-%m-%d").ok()?;
+    // GitLab tokens stop working at 00:00 UTC on the end date (docs: personal access tokens).
     Some(d.and_hms_opt(0, 0, 0)?.and_utc())
+}
+
+/// Trim the trailing slash and append `/api/v4` when the path does not end with it.
+fn normalize_base(base: &str) -> String {
+    let b = base.trim().trim_end_matches('/');
+    if b.ends_with("/api/v4") {
+        b.to_owned()
+    } else {
+        format!("{b}/api/v4")
+    }
 }
 
 impl GitLab {
@@ -47,7 +58,7 @@ impl GitLab {
     pub fn from_config(c: &serde_json::Value) -> Result<Self> {
         Ok(Self {
             http: Http::new(
-                cfg_str(c, "base_url").unwrap_or_else(|| DEFAULT_BASE.into()),
+                normalize_base(&cfg_str(c, "base_url").unwrap_or_else(|| DEFAULT_BASE.into())),
                 cfg_loopback(c),
             )?,
             project_id: cfg_str(c, "project_id"),
@@ -177,17 +188,46 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn gl(server: &MockServer) -> GitLab {
-        GitLab::from_config(&json!({"base_url": server.uri(), "project_id": "42"})).unwrap()
+        GitLab::from_config(
+            &json!({"base_url": format!("{}/api/v4", server.uri()), "project_id": "42"}),
+        )
+        .unwrap()
     }
     fn cred() -> SecretValue {
         SecretValue::new("glpat-test")
+    }
+
+    #[test]
+    fn base_url_gets_api_v4() {
+        assert_eq!(
+            normalize_base("https://gl.example.com"),
+            "https://gl.example.com/api/v4"
+        );
+        assert_eq!(
+            normalize_base("https://gl.example.com/"),
+            "https://gl.example.com/api/v4"
+        );
+        assert_eq!(
+            normalize_base("https://gl.example.com/api/v4/"),
+            "https://gl.example.com/api/v4"
+        );
+        assert_eq!(
+            normalize_base("https://gl.example.com/gitlab"),
+            "https://gl.example.com/gitlab/api/v4"
+        );
+    }
+
+    #[test]
+    fn end_date_is_midnight_utc() {
+        let t = parse_date(&Some("2027-01-31".into())).unwrap();
+        assert_eq!(t.to_rfc3339(), "2027-01-31T00:00:00+00:00");
     }
 
     #[tokio::test]
     async fn verify_ok() {
         let s = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path("/personal_access_tokens/self"))
+            .and(path("/api/v4/personal_access_tokens/self"))
             .and(header("PRIVATE-TOKEN", "glpat-test"))
             .respond_with(
                 ResponseTemplate::new(200)
@@ -205,7 +245,7 @@ mod tests {
     async fn rotate_sets_expires_at() {
         let s = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/personal_access_tokens/self/rotate"))
+            .and(path("/api/v4/personal_access_tokens/self/rotate"))
             .and(wiremock::matchers::body_string_contains("expires_at"))
             .respond_with(
                 ResponseTemplate::new(200).set_body_json(
@@ -227,7 +267,7 @@ mod tests {
     async fn create_uses_aivw_name() {
         let s = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/projects/42/access_tokens"))
+            .and(path("/api/v4/projects/42/access_tokens"))
             .and(body_partial_json(
                 json!({"name": "aivw_demo_20261124", "scopes": ["read_api"], "access_level": 40}),
             ))
@@ -249,7 +289,7 @@ mod tests {
     async fn revoke_ok() {
         let s = MockServer::start().await;
         Mock::given(method("DELETE"))
-            .and(path("/projects/42/access_tokens/9"))
+            .and(path("/api/v4/projects/42/access_tokens/9"))
             .respond_with(ResponseTemplate::new(204))
             .mount(&s)
             .await;
@@ -268,9 +308,10 @@ mod tests {
 
     #[tokio::test]
     async fn error_mapping() {
+        // The engine treats only this text as a dead credential (`proves_dead`).
         assert!(matches!(
             status(401, None).await,
-            WardenError::ProviderAuth(_)
+            WardenError::ProviderAuth(m) if m.starts_with("HTTP 401")
         ));
         assert!(matches!(
             status(403, None).await,

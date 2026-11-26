@@ -27,6 +27,12 @@ struct Inner {
     /// Error text for `issue`, and whether the provider acts before it fails.
     issue_fail: Option<(String, bool)>,
     revoke_404: bool,
+    /// When set, every issued token gets this id (Cloudflare roll keeps the id).
+    fixed_id: Option<String>,
+    /// Message of the `ProviderAuth` error for a dead credential.
+    auth_msg: Option<String>,
+    /// Token id that `verify` returns (default `x`).
+    verify_id: Option<String>,
 }
 
 #[derive(Default)]
@@ -68,7 +74,11 @@ impl FakeProvider {
             return Err(WardenError::ProviderRateLimited { retry_after: l });
         }
         if !g.valid.contains_key(cred.expose()) {
-            return Err(WardenError::ProviderAuth("dead credential".into()));
+            return Err(WardenError::ProviderAuth(
+                g.auth_msg
+                    .clone()
+                    .unwrap_or_else(|| "HTTP 401: dead credential".into()),
+            ));
         }
         Ok(())
     }
@@ -89,7 +99,8 @@ impl FakeProvider {
     fn issue(&self) -> IssuedToken {
         let mut g = self.fake.0.lock().unwrap();
         g.counter += 1;
-        let (v, id) = (format!("tok-{}", g.counter), format!("id-{}", g.counter));
+        let id = g.fixed_id.clone().unwrap_or(format!("id-{}", g.counter));
+        let v = format!("tok-{}", g.counter);
         g.valid.insert(v.clone(), id.clone());
         IssuedToken {
             value: SecretValue::new(v),
@@ -114,8 +125,9 @@ impl Provider for FakeProvider {
     }
     async fn verify(&self, cred: &SecretValue) -> Result<TokenInfo> {
         self.enter(cred)?;
+        let vid = self.fake.0.lock().unwrap().verify_id.clone();
         Ok(TokenInfo {
-            provider_token_id: "x".into(),
+            provider_token_id: vid.unwrap_or_else(|| "x".into()),
             expires_at: None,
             scopes: vec![],
         })
@@ -1019,4 +1031,100 @@ async fn revoke_of_an_already_revoked_token_is_done() {
     let rv = eng.run_pending_revokes().await.unwrap();
     assert!(rv.len() == 1 && rv[0].done, "{rv:?}");
     assert_eq!(e.journal_files(), 0);
+}
+
+#[tokio::test]
+async fn same_token_id_still_stores_the_new_value() {
+    let e = Env::new();
+    let id = e.admin("a", false, 1, policy(0));
+    e.fake.0.lock().unwrap().fixed_id = Some("id-a".into());
+    let eng = e.engine();
+    eng.rotate(id).await.unwrap();
+    assert_eq!(e.vault_value(id), "tok-1");
+    eng.rotate(id).await.unwrap();
+    assert_eq!(e.vault_value(id), "tok-2");
+    e.assert_sound(id);
+}
+
+#[tokio::test]
+async fn empty_token_id_never_queues_a_revoke() {
+    let e = Env::new();
+    let id = e.admin("a", false, 1, policy(0));
+    let mut item = e.vault_item(id);
+    item.provider_token_id = Some(String::new());
+    let secrets = [("token".to_owned(), SecretValue::new("adm-a"))].into();
+    e.vault.lock().unwrap().put(item, secrets).unwrap();
+    e.fake.0.lock().unwrap().verify_id = Some(String::new());
+    let eng = e.engine();
+    let r = eng.rotate(id).await.unwrap();
+    assert!(matches!(r.revoke, RevokeState::NotNeeded), "{:?}", r.revoke);
+    assert_eq!(e.journal_files(), 0);
+}
+
+#[tokio::test]
+async fn a_403_is_not_a_dead_credential() {
+    let e = Env::new();
+    let id = e.admin("a", true, 1, policy(0));
+    let eng = e.engine();
+    e.fake
+        .set_issue_fail(Some(("retryable: request timed out", false)));
+    assert!(eng.rotate(id).await.is_err());
+    assert_eq!(e.journal_files(), 1);
+    e.fake.set_issue_fail(None);
+    e.fake.0.lock().unwrap().auth_msg = Some("HTTP 403: forbidden".into());
+    let cur = e.vault_value(id);
+    e.fake.0.lock().unwrap().valid.remove(&cur);
+    let err = eng.rotate(id).await.unwrap_err().to_string();
+    assert!(!err.contains("manual re-entry"), "{err}");
+    assert_eq!(e.journal_files(), 1);
+}
+
+#[tokio::test]
+async fn mcp_rate_limit_survives_a_restart() {
+    let e = Env::new();
+    let a = e.admin("a", false, 1, policy(0));
+    assert!(matches!(
+        e.engine()
+            .request_rotation(a, RotationSource::Mcp)
+            .await
+            .unwrap(),
+        RotationRequestOutcome::Rotated(_)
+    ));
+    // A new engine has no memory of the request, but the vault has the rotation time.
+    e.clock.advance(CDuration::minutes(10));
+    assert!(matches!(
+        e.engine()
+            .request_rotation(a, RotationSource::Mcp)
+            .await
+            .unwrap(),
+        RotationRequestOutcome::RateLimited { .. }
+    ));
+}
+
+#[tokio::test]
+async fn rotation_request_on_a_manual_token_is_refused_and_not_a_failure() {
+    let e = Env::new();
+    let a = e.admin("m", false, 0, policy(0));
+    {
+        let mut v = e.vault.lock().unwrap();
+        let mut item = v.get(&a).unwrap().clone();
+        item.provider = ProviderRef {
+            kind: ProviderKind::Manual,
+            config: serde_json::json!({}),
+        };
+        let secret = v.secret(&a, "token").unwrap();
+        v.put(item, [("token".to_owned(), secret)].into()).unwrap();
+    }
+    let eng = e.engine();
+    for source in [RotationSource::Mcp, RotationSource::Cli] {
+        assert!(matches!(
+            eng.request_rotation(a, source).await,
+            Err(WardenError::ProviderUnsupported(_))
+        ));
+    }
+    assert!(
+        matches!(eng.status(&a), ItemStatus::Idle),
+        "{:?}",
+        eng.status(&a)
+    );
 }

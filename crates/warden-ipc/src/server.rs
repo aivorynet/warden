@@ -92,23 +92,20 @@ fn error(code: &str, message: &str) -> Response {
     }
 }
 
-async fn handshake(stream: &mut BoxedStream, ctx: &Ctx) -> Option<Session> {
+async fn handshake(stream: &mut BoxedStream, ctx: &Ctx) -> Option<(Session, ClientToken)> {
     let hello: Hello = match tokio::time::timeout(HELLO_TIMEOUT, read_msg(stream)).await {
         Ok(Ok(h)) => h,
         _ => return None,
     };
     let session = match hello.client_token {
-        Some(raw) => {
-            let caps = match ClientToken::parse(&raw) {
-                Ok(t) => ctx.store.lookup(&t).await,
-                Err(_) => None,
-            };
-            caps.map(Session::paired)
-        }
+        Some(raw) => match ClientToken::parse(&raw) {
+            Ok(t) => ctx.store.lookup(&t).await.map(|c| (Session::paired(c), t)),
+            Err(_) => None,
+        },
         None => None,
     };
     let reply = match &session {
-        Some(s) => HelloReply::Accepted {
+        Some((s, _)) => HelloReply::Accepted {
             capabilities: s.capabilities().to_vec(),
         },
         None => HelloReply::Refused {
@@ -120,7 +117,7 @@ async fn handshake(stream: &mut BoxedStream, ctx: &Ctx) -> Option<Session> {
 }
 
 async fn connection(mut stream: BoxedStream, ctx: Ctx) {
-    let Some(session) = handshake(&mut stream, &ctx).await else {
+    let Some((mut session, token)) = handshake(&mut stream, &ctx).await else {
         return;
     };
     loop {
@@ -143,6 +140,16 @@ async fn connection(mut stream: BoxedStream, ctx: Ctx) {
             }
             Err(_) => return,
         };
+        // Check the token on every request, so `Unpair` also ends open sessions.
+        match ctx.store.lookup(&token).await {
+            Some(caps) if caps == session.capabilities() => {}
+            Some(caps) => session = Session::paired(caps),
+            None => {
+                let _ =
+                    write_response(&mut stream, &error("unpaired", "client is not paired")).await;
+                return;
+            }
+        }
         let resp = match msg {
             ClientMsg::Request(req) if !session.allows(&req) => {
                 error("forbidden", "capability does not allow this request")

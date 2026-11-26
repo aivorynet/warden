@@ -217,7 +217,7 @@ impl Serialize for Hex {
 impl<'de> Deserialize<'de> for Hex {
     fn deserialize<D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
         let s = String::deserialize(d)?;
-        if s.len() % 2 != 0 || !s.is_ascii() {
+        if s.len() % 2 != 0 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err(serde::de::Error::custom("bad hex"));
         }
         (0..s.len())
@@ -232,6 +232,16 @@ impl<'de> Deserialize<'de> for Hex {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hex_rejects_sign_characters() {
+        assert!(serde_json::from_str::<Hex>("\"+1\"").is_err());
+        assert!(serde_json::from_str::<Hex>("\"-1\"").is_err());
+        assert_eq!(
+            serde_json::from_str::<Hex>("\"0aFf\"").unwrap().0,
+            vec![10, 255]
+        );
+    }
 
     #[test]
     fn secret_key_roundtrip() {

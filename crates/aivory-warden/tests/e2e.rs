@@ -608,3 +608,169 @@ fn desktop_requests_status_and_capabilities() {
     let listed = env.ok(&["pair", "--list"]);
     assert!(listed.contains("cli"), "{listed}");
 }
+
+/// Init a vault with the password on stdin. The daemon must run.
+fn init_vault(env: &Env) {
+    let mut init = env.awd(&[
+        "init",
+        "--pledge",
+        "--insecure-fast-kdf",
+        "--password-stdin",
+        "--json",
+        "--device-name",
+        "e2e-device",
+    ]);
+    init.env_remove("WARDEN_PASSWORD")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = init.spawn().unwrap();
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(format!("{PASSWORD}\n").as_bytes())
+            .unwrap();
+    }
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Run `awd add` with the secret on stdin.
+fn add_manual(env: &Env, args: &[&str], secret: &str) -> Output {
+    let mut all = vec!["add", "--provider", "manual", "--secret-stdin"];
+    all.extend_from_slice(args);
+    let mut add = env.awd(&all);
+    add.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = add.spawn().unwrap();
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(format!("{secret}\n").as_bytes())
+            .unwrap();
+    }
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn add_writes_places_and_mcp_sees_less() {
+    use warden_core::RotationPolicy;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let env = Env {
+        home: tmp.path().join("home"),
+        work: tmp.path().join("work"),
+    };
+    std::fs::create_dir_all(&env.work).unwrap();
+    let _daemon = start_daemon(&env);
+    init_vault(&env);
+
+    // `add` writes the value to its places at once, not only at the first rotation.
+    let envfile = env.work.join("app.env");
+    std::fs::write(&envfile, "# app\r\nOTHER=1\r\n").unwrap();
+    let spec = format!("dotenv:{}:APP_TOKEN", envfile.display());
+    let out = add_manual(
+        &env,
+        &["--name", "placed", "--sink", &spec],
+        "fixture-value-1",
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = read(&envfile);
+    assert!(text.contains("APP_TOKEN=fixture-value-1"), "{text}");
+    assert!(text.contains("OTHER=1"), "{text}");
+
+    // An invalid place is refused at add time.
+    let bad = format!("dotenv:{}:BAD KEY", envfile.display());
+    let out = add_manual(
+        &env,
+        &["--name", "bad-place", "--sink", &bad],
+        "fixture-value-2",
+    );
+    assert!(!out.status.success());
+    assert!(!env.ok(&["list"]).contains("bad-place"));
+
+    let pairing = env.ok(&["pair", "agent", "--cap", "mcp", "--cap", "inbox"]);
+    let mcp_token = pairing
+        .lines()
+        .find(|l| l.starts_with("aivw_"))
+        .unwrap()
+        .trim()
+        .to_owned();
+    let cli_token = std::fs::read_to_string(env.home.join("config").join("cli.token"))
+        .unwrap()
+        .trim()
+        .to_owned();
+    let endpoint = Paths::from_home(env.home.clone()).endpoint();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let mut mcp = Client::connect(endpoint.as_deref(), Some(&mcp_token))
+            .await
+            .unwrap();
+        let mut full = Client::connect(endpoint.as_deref(), Some(&cli_token))
+            .await
+            .unwrap();
+        let Response::Items { items } = full.call(Request::ListItems).await.unwrap() else {
+            panic!("no list");
+        };
+        let id = items.iter().find(|i| i.name == "placed").unwrap().id;
+
+        // An MCP client gets no place paths.
+        let Response::Item(item) = mcp.call(Request::GetItem { item: id }).await.unwrap() else {
+            panic!("no item");
+        };
+        assert!(item.sinks.is_empty());
+        let Response::Item(item) = full.call(Request::GetItem { item: id }).await.unwrap() else {
+            panic!("no item");
+        };
+        assert_eq!(item.sinks.len(), 1);
+
+        // An MCP client cannot claim a browser origin for an inbox entry.
+        let r = mcp
+            .call(Request::InboxAdd {
+                origin: "https://gitlab.com".into(),
+                label: "agent token".into(),
+                value: warden_core::SecretValue::new("fixture-inbox-value"),
+                provider_hint: None,
+                expires_at: None,
+            })
+            .await
+            .unwrap();
+        assert!(matches!(r, Response::InboxAdded { .. }), "{r:?}");
+        let Response::Inbox { inbox } = full.call(Request::InboxList).await.unwrap() else {
+            panic!("no inbox");
+        };
+        assert_eq!(inbox[0].origin, "mcp:https://gitlab.com");
+
+        // A zero interval is refused, also for a Full client.
+        let zero = RotationPolicy {
+            interval: Some(Duration::ZERO),
+            ..item.policy
+        };
+        assert_eq!(
+            code_of(
+                full.call(Request::UpdatePolicy {
+                    item: id,
+                    policy: zero
+                })
+                .await
+                .unwrap()
+            ),
+            "bad_request"
+        );
+    });
+}

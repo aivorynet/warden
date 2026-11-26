@@ -115,6 +115,7 @@ fn forbidden_v4(ip: Ipv4Addr) -> bool {
         || (a == 198 && (b == 18 || b == 19)) // benchmarking
         || (a == 198 && b == 51 && c == 100) // TEST-NET-2
         || (a == 203 && b == 0 && c == 113) // TEST-NET-3
+        || (a == 192 && b == 88 && c == 99) // 6to4 relay anycast
         || a >= 240 // reserved
 }
 
@@ -141,6 +142,10 @@ fn forbidden_v6(ip: Ipv6Addr) -> bool {
     }
     if s[0] == 0x2002 {
         return forbidden_v4(embedded(s[1], s[2]));
+    }
+    // 64:ff9b:1::/48 local-use NAT64, 2001::/32 Teredo: the real target is hidden.
+    if (s[0] == 0x64 && s[1] == 0xff9b && s[2] == 1) || (s[0] == 0x2001 && s[1] == 0) {
+        return true;
     }
     // 2001:db8::/32 documentation, 100::/64 discard.
     (s[0] == 0x2001 && s[1] == 0x0db8) || (s[0] == 0x0100 && s[1..4] == [0; 3])
@@ -301,6 +306,13 @@ pub(crate) fn redaction_forms(values: &[&str]) -> Vec<String> {
         forms.push(hex::encode_upper(b));
         forms.push(url::form_urlencoded::byte_serialize(b).collect());
         forms.push(percent_encode_all(b));
+        forms.push(percent_encode_all(b).to_ascii_lowercase());
+        forms.push(
+            url::form_urlencoded::byte_serialize(b)
+                .collect::<String>()
+                .to_ascii_lowercase(),
+        );
+        forms.push(json_unicode_escape(v));
         // JSON escapes: `\/`, and the full JSON string escape (quotes, backslashes, controls).
         forms.push(v.replace('/', r"\/"));
         if let Ok(j) = serde_json::to_string(v) {
@@ -385,6 +397,19 @@ fn truncate_json(text: &mut String, max: usize) -> bool {
         }
     }
     false
+}
+
+/// Escape every ASCII punctuation character of `v` as a JSON `\u00xx` escape (Go, Python style).
+fn json_unicode_escape(v: &str) -> String {
+    let mut out = String::with_capacity(v.len() * 2);
+    for ch in v.chars() {
+        if ch.is_ascii_punctuation() {
+            out.push_str(&format!("\\u{:04x}", u32::from(ch)));
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 fn percent_encode_all(b: &[u8]) -> String {
@@ -639,6 +664,27 @@ mod tests {
         assert!(pre(call("https://api.example.com/"), &mixed).await.is_err());
         assert!(!is_forbidden_ip("93.184.216.34".parse().unwrap()));
         assert!(!is_forbidden_ip("2606:4700::1111".parse().unwrap()));
+    }
+
+    #[test]
+    fn refuses_teredo_local_nat64_and_6to4_relay() {
+        for ip in ["2001:0:4136:e378::1", "64:ff9b:1::a00:1", "192.88.99.1"] {
+            assert!(is_forbidden_ip(ip.parse().unwrap()), "{ip}");
+        }
+    }
+
+    #[test]
+    fn redacts_lowercase_percent_and_unicode_escapes() {
+        let forms = redaction_forms(&[SECRET]);
+        let b = SECRET.as_bytes();
+        let echoes = [
+            percent_encode_all(b).to_ascii_lowercase(),
+            json_unicode_escape(SECRET),
+        ];
+        for e in echoes {
+            let out = redact(&format!("a {e} b"), &forms);
+            assert_eq!(out, format!("a {REDACTED} b"), "{e}");
+        }
     }
 
     #[test]

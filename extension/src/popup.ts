@@ -134,7 +134,9 @@ async function refreshInbox(): Promise<void> {
       t.append(a, b);
       const st = document.createElement("span");
       st.className = "st";
-      st.textContent = "confirm in app";
+      // Without the desktop app the user accepts with the CLI. Name both.
+      st.textContent = "accept in app or awd inbox";
+      st.title = "Accept it in the Warden app, or run: awd inbox accept <id>";
       row.append(t, st);
       list.append(row);
     }

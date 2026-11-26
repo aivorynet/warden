@@ -23,8 +23,10 @@ use zeroize::Zeroizing;
 const VERSION: u32 = 2;
 /// Format version of the op envelope.
 const OP_VERSION: u32 = 1;
-/// Largest Argon2 memory that a header may ask for (1 GiB, in KiB).
-const MAX_KDF_KIB: u32 = 1024 * 1024;
+/// Largest Argon2 memory that a header may ask for (256 MiB, in KiB).
+const MAX_KDF_KIB: u32 = 256 * 1024;
+/// Largest Argon2 iteration count and lane count that a header may ask for.
+const MAX_KDF_T_P: u32 = 16;
 /// Name of the lock file in the local state dir.
 const LOCK_FILE: &str = "vault.lock";
 /// `prev` hash of the first op of a device.
@@ -206,7 +208,7 @@ fn read_header(dir: &Path) -> Result<Header> {
     if h.version != VERSION && h.version != 1 {
         return Err(verr(format!("unsupported vault version {}", h.version)));
     }
-    if h.kdf.m_kib > MAX_KDF_KIB || h.kdf.t > 64 || h.kdf.p > 64 {
+    if h.kdf.m_kib > MAX_KDF_KIB || h.kdf.t > MAX_KDF_T_P || h.kdf.p > MAX_KDF_T_P {
         return Err(verr("kdf parameters out of range"));
     }
     Ok(h)
@@ -327,11 +329,19 @@ fn enroll(
     key: &[u8; 32],
     entry: DeviceEntry,
 ) -> Result<(Header, Vec<DeviceEntry>)> {
-    let h = read_header(dir)?;
-    if read_registry(&h, key)?.iter().any(|d| d.id == entry.id) {
+    let _lock = lock_exclusive(&local.join(LOCK_FILE))?;
+    let mut h = read_header(dir)?;
+    let mut devs = read_registry(&h, key)?;
+    if let Some(d) = devs.iter().find(|d| d.id == entry.id) {
+        if d.public_key != entry.public_key {
+            return Err(verr("device id already registered with another public key"));
+        }
         return Err(verr("device id already registered"));
     }
-    ensure_registry(dir, local, key, &[entry])
+    devs.push(entry);
+    seal_registry(&mut h, key, &devs)?;
+    write_header(dir, &h)?;
+    Ok((h, devs))
 }
 
 fn device_entry(id: DeviceId, name: &str, sk: &SigningKey) -> DeviceEntry {
@@ -398,6 +408,27 @@ fn read_seen(local: &Path) -> Result<Seen> {
     }
 }
 
+/// Merge `update` into `seen.json` under the vault lock. Never lowers an entry.
+fn merge_seen(local: &Path, update: &Seen) -> Result<()> {
+    let _lock = lock_exclusive(&local.join(LOCK_FILE))?;
+    let mut cur = read_seen(local)?;
+    let mut changed = false;
+    for (k, e) in &update.devices {
+        if cur.devices.get(k).is_none_or(|c| c.seq < e.seq) {
+            cur.devices.insert(k.clone(), e.clone());
+            changed = true;
+        }
+    }
+    if changed {
+        atomic_write(
+            &local.join("seen.json"),
+            &serde_json::to_vec_pretty(&cur)?,
+            true,
+        )?;
+    }
+    Ok(())
+}
+
 fn list_dir(p: &Path) -> Result<Vec<(String, PathBuf)>> {
     let mut v = Vec::new();
     for e in fs::read_dir(p)? {
@@ -456,12 +487,12 @@ fn load_ops(
                 let raw = fs::read(path.join(format!("{seq}.op")))?;
                 let env: Envelope = match serde_json::from_slice(&raw) {
                     Ok(env) => env,
-                    Err(_) if did == own && seq == seqs.len() as u64 => {
-                        // A crash left a truncated last op of this device. No later op
+                    Err(_) if did == own && seq == seqs.len() as u64 && raw.is_empty() => {
+                        // A crash left an empty last op of this device. No later op
                         // depends on it. Move it aside and go on.
                         let from = path.join(format!("{seq}.op"));
                         let to = path.join(format!("{seq}.op.corrupt"));
-                        tracing::warn!("quarantine truncated last op {seq} of own device {did}");
+                        tracing::warn!("quarantine empty last op {seq} of own device {did}");
                         fs::rename(&from, &to)?;
                         valid = seq - 1;
                         break;
@@ -493,6 +524,11 @@ fn load_ops(
                 let body: OpBody = serde_json::from_slice(&pt)?;
                 if body.item.as_ref().is_some_and(|i| i.id != env.item) {
                     return Err(verr(format!("op {seq} of {did} has a mismatched item")));
+                }
+                if body.lamport == u64::MAX {
+                    return Err(verr(format!(
+                        "op {seq} of {did} has a lamport at the limit"
+                    )));
                 }
                 out.max_lamport = out.max_lamport.max(body.lamport);
                 out.audit.push(AuditRecord {
@@ -605,6 +641,11 @@ impl Vault {
         if dir.join("header.json").exists() {
             return Err(verr("a vault already exists in this directory"));
         }
+        if local_state_dir.join("device.json").exists() {
+            return Err(verr(
+                "this local state dir already holds a device (use open)",
+            ));
+        }
         fs::create_dir_all(dir.join("ops"))?;
         fs::create_dir_all(local_state_dir)?;
         let sk = secret_key.unwrap_or_else(SecretKey::generate);
@@ -632,9 +673,14 @@ impl Vault {
                 ct: Hex(Vec::new()),
             },
         };
-        wrap_key(&mut header, &kek, &vault_key)?;
-        seal_registry(&mut header, &vault_key, &devices)?;
-        write_header(dir, &header)?;
+        let sealed = wrap_key(&mut header, &kek, &vault_key)
+            .and_then(|()| seal_registry(&mut header, &vault_key, &devices))
+            .and_then(|()| write_header(dir, &header));
+        if let Err(e) = sealed {
+            // Without a header the device file only blocks the next `create`.
+            let _ = fs::remove_file(local_state_dir.join("device.json"));
+            return Err(e);
+        }
         let mut v = Vault {
             dir: dir.to_owned(),
             local: local_state_dir.to_owned(),
@@ -693,12 +739,16 @@ impl Vault {
         }
         fs::create_dir_all(local_state_dir)?;
         let (id, sk) = new_device(&key, &h.vault_id, local_state_dir, device_name)?;
-        enroll(
+        if let Err(e) = enroll(
             dir,
             local_state_dir,
             &key,
             device_entry(id, device_name, &sk),
-        )?;
+        ) {
+            // Do not leave a device key behind that the registry does not list.
+            let _ = fs::remove_file(local_state_dir.join("device.json"));
+            return Err(e);
+        }
         if h.version < VERSION {
             migrate_header(dir, local_state_dir, &kek, &key)?;
         }
@@ -782,11 +832,7 @@ impl Vault {
             }
         }
         if changed {
-            atomic_write(
-                &self.local.join("seen.json"),
-                &serde_json::to_vec_pretty(&seen)?,
-                true,
-            )?;
+            merge_seen(&self.local, &seen)?;
         }
         self.loaded = loaded;
         Ok(())
@@ -899,9 +945,16 @@ impl Vault {
             .get(&self.device_id)
             .copied()
             .unwrap_or((0, ZERO));
-        let seq = last_seq + 1;
+        let seq = last_seq
+            .checked_add(1)
+            .ok_or_else(|| verr("op sequence number overflow"))?;
+        let lamport = self
+            .loaded
+            .max_lamport
+            .checked_add(1)
+            .ok_or_else(|| verr("lamport clock overflow"))?;
         let body = OpBody {
-            lamport: self.loaded.max_lamport + 1,
+            lamport,
             at: self.clock.now(),
             item,
             secrets,

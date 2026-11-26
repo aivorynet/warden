@@ -5,7 +5,7 @@
 
 use crate::http::{Http, cfg_loopback, cfg_str, check_name, text_capped};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Timelike, Utc};
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -299,6 +299,8 @@ impl AwsIam {
         let (Some(intent_at), Some(current)) = (self.intent_at, &self.current_id) else {
             return Err(manual());
         };
+        // IAM dates have whole seconds and clocks differ. Truncate and allow a skew margin.
+        let intent_at = intent_at.with_nanosecond(0).unwrap_or(intent_at) - ORPHAN_SKEW;
         let orphans: Vec<&str> = keys
             .iter()
             .filter(|(id, at)| {
@@ -415,9 +417,35 @@ impl Provider for AwsIam {
             p.push(("UserName", u.as_str()));
         }
         self.call("iam", &c, "DeleteAccessKey", &p).await?;
+        // Remove the tag of the old key (IAM allows 50 tags per user). Best effort.
+        let user = match &self.user_name {
+            Some(u) => Ok(u.clone()),
+            None => self.caller_user(&c).await,
+        };
+        let untagged = match user {
+            Ok(u) => {
+                self.call(
+                    "iam",
+                    &c,
+                    "UntagUser",
+                    &[
+                        ("UserName", u.as_str()),
+                        ("TagKeys.member.1", provider_token_id),
+                    ],
+                )
+                .await
+            }
+            Err(e) => Err(e),
+        };
+        if let Err(e) = untagged {
+            tracing::warn!(error = %e, "UntagUser failed after DeleteAccessKey");
+        }
         Ok(())
     }
 }
+
+/// Clock skew allowed between this host and IAM when Warden looks for an orphan key.
+const ORPHAN_SKEW: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
 
 #[cfg(test)]
 mod tests {
@@ -694,7 +722,62 @@ mod tests {
                 .await,
             Err(WardenError::Config(_))
         ));
+        Mock::given(method("POST"))
+            .and(body_string_contains("Action=UntagUser"))
+            .and(body_string_contains("TagKeys.member.1=AKIAD"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("<ok/>"))
+            .expect(1)
+            .mount(&s)
+            .await;
         p.revoke(&cred("AKIAADMIN"), "AKIAD").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn orphan_within_clock_skew_is_found() {
+        let s = MockServer::start().await;
+        mount(&s, "GetCallerIdentity", identity()).await;
+        mount(
+            &s,
+            "ListAccessKeys",
+            keys_at(&[
+                ("AKIAOLD", "2026-01-01T00:00:00Z"),
+                ("AKIAORPHAN", "2026-11-24T09:58:00Z"),
+            ]),
+        )
+        .await;
+        Mock::given(method("POST"))
+            .and(body_string_contains("Action=DeleteAccessKey"))
+            .and(body_string_contains("AccessKeyId=AKIAORPHAN"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("<ok/>"))
+            .expect(1)
+            .mount(&s)
+            .await;
+        mount(
+            &s,
+            "CreateAccessKey",
+            ResponseTemplate::new(200).set_body_string(
+                "<AccessKey><AccessKeyId>AKIANEW</AccessKeyId>                 <SecretAccessKey>s</SecretAccessKey></AccessKey>",
+            ),
+        )
+        .await;
+        mount(
+            &s,
+            "TagUser",
+            ResponseTemplate::new(200).set_body_string("<ok/>"),
+        )
+        .await;
+        let p = AwsIam::from_config(&json!({
+            "base_url": s.uri(),
+            "user_name": "bob",
+            "_warden_intent_at": "2026-11-24T10:00:00.900Z",
+            "_warden_current_id": "AKIAOLD"
+        }))
+        .unwrap();
+        let t = p
+            .rotate_self(&cred("AKIAOLD"), &rotate_req(Some("AKIAOLD")))
+            .await
+            .unwrap();
+        assert_eq!(t.provider_token_id, "AKIANEW");
     }
 
     async fn status(r: ResponseTemplate) -> WardenError {

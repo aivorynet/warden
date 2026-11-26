@@ -84,12 +84,70 @@ fn build_env(name: &str) -> Result<Box<dyn Sink>> {
 fn build_env(name: &str) -> Result<Box<dyn Sink>> {
     let home =
         std::env::var_os("HOME").ok_or_else(|| WardenError::Config("HOME is not set".into()))?;
+    let shell = std::env::var("SHELL").unwrap_or_default();
     Ok(Box::new(ProfileSink::new(
         name,
-        std::path::PathBuf::from(home).join(".profile"),
+        profile_path(std::path::Path::new(&home), &shell),
     )?))
+}
+
+/// Choose the profile file for a login shell value (the `$SHELL` path).
+///
+/// zsh uses `.zshenv`, bash uses `.bashrc`, any other shell uses `.profile`.
+#[cfg(any(not(windows), test))]
+fn profile_path(home: &std::path::Path, shell: &str) -> std::path::PathBuf {
+    let base = shell.rsplit(['/', '\\']).next().unwrap_or("");
+    let base = base.strip_suffix(".exe").unwrap_or(base);
+    home.join(match base {
+        "zsh" => ".zshenv",
+        "bash" => ".bashrc",
+        _ => ".profile",
+    })
 }
 
 pub(crate) fn sink_err(msg: impl Into<String>) -> WardenError {
     WardenError::Sink(msg.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::profile_path;
+    use std::path::Path;
+
+    #[test]
+    fn profile_follows_shell() {
+        let h = Path::new("/h");
+        assert_eq!(profile_path(h, "/bin/zsh"), h.join(".zshenv"));
+        assert_eq!(profile_path(h, "/usr/bin/bash"), h.join(".bashrc"));
+        assert_eq!(profile_path(h, "/usr/bin/fish"), h.join(".profile"));
+        assert_eq!(profile_path(h, ""), h.join(".profile"));
+    }
+
+    #[test]
+    fn build_validates_specs() {
+        use warden_core::SinkSpec;
+        let p = std::path::PathBuf::from("f");
+        assert!(
+            super::build(&SinkSpec::Json {
+                path: p.clone(),
+                pointer: "a/b".into()
+            })
+            .is_err()
+        );
+        assert!(
+            super::build(&SinkSpec::Dotenv {
+                path: p.clone(),
+                key: "A B".into()
+            })
+            .is_err()
+        );
+        assert!(
+            super::build(&SinkSpec::Regex {
+                path: p,
+                pattern: "(".into(),
+                template: "{{secret}}".into()
+            })
+            .is_err()
+        );
+    }
 }

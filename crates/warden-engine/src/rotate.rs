@@ -42,6 +42,21 @@ fn proves_not_issued(e: &WardenError) -> bool {
     }
 }
 
+/// `true` when a `ProviderAuth` message proves a dead credential. Only HTTP 401 does.
+/// A 403 can come from a missing scope or a policy, so it stays a retryable failure.
+/// AWS answers a dead access key with 403 and the code `InvalidClientTokenId`.
+/// Cloudflare verify answers 200 with a status other than `active` for a disabled token.
+fn proves_dead(msg: &str) -> bool {
+    msg.starts_with("HTTP 401")
+        || msg.contains("InvalidClientTokenId")
+        || msg.starts_with("token status is")
+}
+
+/// A seal failure after the provider call. It must never prove "not issued".
+fn seal_failed(e: WardenError) -> WardenError {
+    WardenError::Provider(format!("retryable: could not seal the new credential: {e}"))
+}
+
 pub(crate) fn delta(d: Duration) -> TimeDelta {
     TimeDelta::from_std(d).unwrap_or(TimeDelta::MAX)
 }
@@ -101,7 +116,7 @@ impl Engine {
             None => {
                 let provider = (self.providers)(&item.provider)?;
                 let now = self.clock.now();
-                let mut old = item.provider_token_id.clone();
+                let mut old = item.provider_token_id.clone().filter(|s| !s.is_empty());
                 // An admin key that was added by hand has no stored id yet. Ask the provider,
                 // so the rotation can revoke the old key.
                 if old.is_none()
@@ -110,7 +125,7 @@ impl Engine {
                     && let Ok(cred) = self.secret_of(&item.id)
                     && let Ok(info) = provider.verify(&cred).await
                 {
-                    old = Some(info.provider_token_id);
+                    old = Some(info.provider_token_id).filter(|s| !s.is_empty());
                 }
                 let e = JournalEntry {
                     id: Uuid::now_v7(),
@@ -145,7 +160,7 @@ impl Engine {
         let cred = self.secret_of(&item.id)?;
         match provider.verify(&cred).await {
             Ok(_) => Ok(()),
-            Err(WardenError::ProviderAuth(_)) => {
+            Err(WardenError::ProviderAuth(m)) if proves_dead(&m) => {
                 self.mark_dead(item, entry.attempts + 1, DEAD_CREDENTIAL);
                 Err(WardenError::Config(DEAD_CREDENTIAL.into()))
             }
@@ -464,7 +479,8 @@ impl Engine {
                 &self.vault_key(),
                 &entry.id.to_string(),
                 token.value.expose(),
-            )?,
+            )
+            .map_err(seal_failed)?,
             provider_token_id: token.provider_token_id,
             expires_at: token.expires_at,
         })
@@ -478,7 +494,12 @@ impl Engine {
                 .get(&item.id)
                 .cloned()
                 .ok_or_else(|| WardenError::NotFound(format!("item {}", item.id)))?;
-            if cur.provider_token_id.as_deref() == Some(issued.provider_token_id.as_str()) {
+            // Skip only when the vault already holds this id and this value. A provider can
+            // keep the id and change the value (Cloudflare roll).
+            if cur.provider_token_id.as_deref() == Some(issued.provider_token_id.as_str())
+                && v.secret(&item.id, TOKEN_SECRET)
+                    .is_ok_and(|s| s.expose() == value.expose())
+            {
                 return Ok(());
             }
             let mut secrets: BTreeMap<String, SecretValue> = BTreeMap::new();
@@ -584,7 +605,7 @@ impl Engine {
             let provider = (self.providers)(&item.provider)?;
             let cred = self.secret_of(&item.id)?;
             if let Err(e) = provider.verify(&cred).await {
-                if matches!(e, WardenError::ProviderAuth(_)) {
+                if matches!(&e, WardenError::ProviderAuth(m) if proves_dead(m)) {
                     // Keep the intent. The user must enter a new credential.
                     self.mark_dead(item, entry.attempts + 1, DEAD_CREDENTIAL);
                 }
@@ -617,23 +638,32 @@ impl Engine {
         item_id: ItemId,
         source: RotationSource,
     ) -> Result<RotationRequestOutcome> {
+        let item = self.item(&item_id)?;
+        // A manual token has nothing to rotate. Refuse before the attempt, so the request
+        // does not mark the item as failed.
+        if item.provider.kind == ProviderKind::Manual {
+            return Err(WardenError::ProviderUnsupported(
+                "a manual token cannot rotate. Make a new one at the provider and update the token"
+                    .into(),
+            ));
+        }
         if source == RotationSource::Mcp {
-            let item = self.item(&item_id)?;
             self.require_rotator(&item)?;
+            if (self.providers)(&item.provider)?.class() == RotationClass::AtomicSwap {
+                return Ok(RotationRequestOutcome::NeedsConfirmation);
+            }
             let now = self.clock.now();
-            let last = lock(&self.state).mcp_last.get(&item_id).copied();
+            // Check and record under one lock, so two parallel requests cannot both pass.
+            // The last rotation in the vault also counts, so a daemon restart keeps the limit.
+            let mut st = lock(&self.state);
+            let last = st.mcp_last.get(&item_id).copied().max(item.rotated_at);
             if let Some(l) = last {
                 let retry_at = l + delta(self.config.mcp_min_interval);
                 if now < retry_at {
                     return Ok(RotationRequestOutcome::RateLimited { retry_at });
                 }
             }
-            if item.provider.kind != ProviderKind::Manual
-                && (self.providers)(&item.provider)?.class() == RotationClass::AtomicSwap
-            {
-                return Ok(RotationRequestOutcome::NeedsConfirmation);
-            }
-            lock(&self.state).mcp_last.insert(item_id, now);
+            st.mcp_last.insert(item_id, now);
         }
         self.rotate(item_id)
             .await
@@ -642,5 +672,23 @@ impl Engine {
 
     pub(crate) fn now(&self) -> DateTime<Utc> {
         self.clock.now()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seal_failure_never_proves_not_issued() {
+        let e = seal_failed(WardenError::Vault("journal seal failed".into()));
+        assert!(!proves_not_issued(&e));
+    }
+
+    #[test]
+    fn only_401_proves_a_dead_credential() {
+        assert!(proves_dead("HTTP 401: nope"));
+        assert!(proves_dead("token status is disabled"));
+        assert!(!proves_dead("HTTP 403: nope"));
     }
 }

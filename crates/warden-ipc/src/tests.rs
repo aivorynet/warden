@@ -330,3 +330,44 @@ async fn other_user_cannot_connect() {
         .unwrap();
     assert!(!out.status.success(), "other user connected");
 }
+
+struct MutStore(std::sync::Mutex<HashMap<String, Vec<Capability>>>);
+
+#[async_trait::async_trait]
+impl PairingStore for MutStore {
+    async fn lookup(&self, token: &ClientToken) -> Option<Vec<Capability>> {
+        self.0.lock().unwrap().get(token.expose()).cloned()
+    }
+}
+
+#[tokio::test]
+async fn unpair_ends_an_open_session() {
+    #[cfg(unix)]
+    let d = tempfile::tempdir().unwrap();
+    #[cfg(unix)]
+    let path = d.path().join("w.sock");
+    #[cfg(windows)]
+    let path = PathBuf::from(format!(
+        r"\\.\pipe\aivory-warden-test-unpair-live-{}",
+        std::process::id()
+    ));
+    let token = ClientToken::generate().expose().to_string();
+    let store = Arc::new(MutStore(std::sync::Mutex::new(HashMap::from([(
+        token.clone(),
+        vec![Capability::McpUse],
+    )]))));
+    let server = Server::bind(Some(&path))
+        .unwrap()
+        .with_pairing_store(store.clone());
+    let handler = Arc::new(Counting::default());
+    tokio::spawn(server.serve(handler.clone()));
+    let mut c = Client::connect(Some(&path), Some(&token)).await.unwrap();
+    assert!(!is_forbidden(&c.call(Request::ListItems).await.unwrap()));
+    store.0.lock().unwrap().clear();
+    let r = c.call(Request::ListItems).await;
+    assert!(
+        matches!(&r, Ok(Response::Error { code, .. }) if code == "unpaired") || r.is_err(),
+        "{r:?}"
+    );
+    assert_eq!(handler.0.load(Ordering::SeqCst), 1);
+}

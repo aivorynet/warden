@@ -226,7 +226,10 @@ export async function auditScreen(root: HTMLElement): Promise<void> {
 // ----------------------------------------------------------------- inbox
 
 function inboxRow(e: InboxEntry, reload: () => void): HTMLElement {
-  const hint = PROVIDERS.find((p) => p.hint === (e.provider_hint ?? "").toLowerCase())?.kind ?? "manual";
+  // An agent wrote the hint of an `mcp:` entry, so the user picks the provider.
+  const hint = e.origin.startsWith("mcp:")
+    ? "manual"
+    : PROVIDERS.find((p) => p.hint === (e.provider_hint ?? "").toLowerCase())?.kind ?? "manual";
   const name = h("input", { value: slugify(e.label) });
   const prov = select(PROVIDERS.map((p) => [p.kind, p.label] as [string, string]), hint, () => {});
   const ends = h("input", { type: "date", value: e.expires_at ? e.expires_at.slice(0, 10) : "" });

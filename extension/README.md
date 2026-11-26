@@ -33,10 +33,11 @@ To make the Chrome Web Store or Edge Add-ons package, use this key.
 2. Open `edge://extensions`. Turn on "Developer mode".
 3. Click "Load unpacked". Select `extension/dist`.
 4. Check that the ID is `ofafkpmfikeikdkldpkgmibfbphkmgai`.
-5. Register the native host. Use the absolute path of the host executable.
-   The executable must start the host with no arguments (a launcher for `aivory-warden native-host`):
+5. Register the native host:
 
-        awd extension install --exe <absolute path>
+        awd extension install
+
+   With `WARDEN_HOME` set, the command writes a launcher that carries `WARDEN_HOME` to the host.
 
    Or call `warden_native_host::register(exe_path, "ofafkpmfikeikdkldpkgmibfbphkmgai")` from Rust.
 6. Check the registration on Windows:

@@ -11,6 +11,7 @@
 | `request_rotation` | Rotate a secret now. Limit: 1 per secret per hour. Some secrets need confirmation in the desktop app. |
 | `get_policy` | Rotation policy and allowed hosts of a secret. |
 | `set_policy` | Change the rotation policy. Needs the `mcp-admin` permission. Turning rotation off needs confirmation in the desktop app. |
+| `save_secret` | Put a new secret (for example a token that the agent just created) into the inbox. The user accepts it. Needs the `inbox` permission: `awd pair <name> --cap mcp --cap inbox`. |
 
 There is no `get_secret` tool. `run_with_secret` is off by default and needs an opt-in for each secret.
 

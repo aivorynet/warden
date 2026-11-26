@@ -71,8 +71,13 @@ pub fn profile_edit(content: &str, name: &str, value: &SecretValue) -> Result<St
             out.push(END.into());
         }
     }
-    let mut s = out.join("\n");
-    s.push('\n');
+    let nl = if content.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let mut s = out.join(nl);
+    s.push_str(nl);
     Ok(s)
 }
 
@@ -159,6 +164,16 @@ mod tests {
             "# >>> aivory-warden >>>\nexport A='3'\nexport B='2'\n# <<< aivory-warden <<<\n"
         );
         assert_eq!(e(&c, "A", "3"), c);
+    }
+
+    #[test]
+    fn keeps_crlf() {
+        let out = e("# mine\r\nPATH=1\r\n", "T", "a");
+        assert_eq!(
+            out,
+            "# mine\r\nPATH=1\r\n\r\n# >>> aivory-warden >>>\r\nexport T='a'\r\n# <<< aivory-warden <<<\r\n"
+        );
+        assert_eq!(e(&out, "T", "a"), out);
     }
 
     #[test]

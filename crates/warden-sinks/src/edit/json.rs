@@ -50,6 +50,10 @@ pub fn edit(content: &str, pointer: &str, value: &SecretValue) -> Result<String>
     if content.ends_with('\n') {
         out.push('\n');
     }
+    // JSON strings escape newlines, so every raw newline is a layout newline.
+    if content.contains("\r\n") {
+        out = out.replace('\n', "\r\n");
+    }
     Ok(out)
 }
 
@@ -92,6 +96,12 @@ mod tests {
     fn compact_and_insert() {
         assert_eq!(e("{\"a\":1}", "/b", "v"), "{\"a\":1,\"b\":\"v\"}");
         assert!(edit("{}", "/x/y", &SecretValue::new("v")).is_err());
+    }
+
+    #[test]
+    fn keeps_crlf() {
+        let out = e("{\r\n  \"a\": \"o\"\r\n}\r\n", "/a", "n");
+        assert_eq!(out, "{\r\n  \"a\": \"n\"\r\n}\r\n");
     }
 
     #[test]

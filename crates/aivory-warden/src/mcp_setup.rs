@@ -19,7 +19,6 @@ use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 use warden_core::ipc::Capability;
 use warden_core::{Result, WardenError};
-use warden_vault::fsutil::atomic_write;
 
 /// Name of the entry in the config of a client.
 pub const ENTRY: &str = "aivory-warden";
@@ -354,18 +353,58 @@ fn entry_json(c: &Client, binary: &Path, token: &str) -> Value {
     Value::Object(m)
 }
 
-/// Copy the old file to `<file>.bak`, then write the new text atomically.
+/// Copy the old file to `<file>.bak` (only when no `.bak` exists), then write the new text.
+///
+/// The write keeps the mode and the ACL of an existing file and goes through a symlink to
+/// its target. A new file holds a token, so it becomes owner-only.
 fn write_with_backup(path: &Path, text: &str) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    if path.exists() {
+    let existed = path.exists();
+    if existed {
         let mut bak = path.as_os_str().to_owned();
         bak.push(".bak");
-        std::fs::copy(path, PathBuf::from(bak))?;
+        let bak = PathBuf::from(bak);
+        if !bak.exists() {
+            std::fs::copy(path, bak)?;
+        }
     }
-    atomic_write(path, text.as_bytes(), false)?;
+    warden_sinks::atomic_write(path, text.as_bytes())?;
+    if !existed {
+        warden_ipc::restrict_to_owner(path)
+            .map_err(|e| WardenError::Config(format!("cannot restrict the config file: {e}")))?;
+    }
     Ok(())
+}
+
+/// The `command` of our entry in the config of a client, when the config holds one.
+fn entry_command(c: &Client, env: &Env) -> Option<String> {
+    let text = std::fs::read_to_string(c.config_path(env)).ok()?;
+    match c.format {
+        Format::Toml => text
+            .parse::<toml_edit::DocumentMut>()
+            .ok()?
+            .get("mcp_servers")?
+            .as_table_like()?
+            .get(ENTRY)?
+            .as_table_like()?
+            .get("command")?
+            .as_str()
+            .map(str::to_owned),
+        f => serde_json::from_str::<Value>(&text)
+            .ok()?
+            .get(json_key(f))?
+            .get(ENTRY)?
+            .get("command")?
+            .as_str()
+            .map(str::to_owned),
+    }
+}
+
+/// True when the entry exists and its command path no longer exists.
+fn is_stale(c: &Client, env: &Env) -> bool {
+    entry_command(c, env).is_some_and(|cmd| !Path::new(&cmd).exists())
 }
 
 fn read_or_empty(path: &Path) -> Result<String> {
@@ -498,13 +537,22 @@ fn claude_cli(c: &Client, env: &Env) -> Option<PathBuf> {
 /// Add the server to one client. Pair a new token first. Undo the pairing when the write fails.
 pub fn add(env: &Env, paths: &Paths, id: &str, binary: &Path) -> Result<Outcome> {
     let c = client(id)?;
-    if c.connected(env) {
+    let stale = c.connected(env) && is_stale(c, env);
+    if c.connected(env) && !stale {
         return Ok(Outcome::AlreadyConnected);
     }
     let path = c.config_path(env);
+    if stale && let Some(cli) = claude_cli(c, env) {
+        // `claude mcp add` fails on an existing name: remove the stale entry first.
+        let _ = run_cli(&cli, &["mcp", "remove", "--scope", "user", ENTRY]);
+    }
     unpair_all(paths, c)?; // a leftover pairing of an earlier run
     let pf = PairingFile::new(paths.pairing_file());
-    let token = pf.add(&pairing_name(c), &[Capability::McpUse])?;
+    // `inbox` lets the agent hand over a token with `save_secret`. The user accepts each one.
+    let token = pf.add(
+        &pairing_name(c),
+        &[Capability::McpUse, Capability::InboxWrite],
+    )?;
     let done = match (c.format, claude_cli(c, env)) {
         (_, Some(cli)) => {
             let bin = binary.to_string_lossy();
@@ -600,16 +648,76 @@ mod tests {
         _d: tempfile::TempDir,
         env: Env,
         paths: Paths,
+        bin: PathBuf,
     }
 
     fn fx(os: Os) -> Fx {
         let d = tempfile::tempdir().unwrap();
         let env = Env::sandbox(os, &d.path().join("home"));
         let paths = Paths::from_home(d.path().join("warden"));
-        Fx { _d: d, env, paths }
+        let bin = d.path().join("aivory-warden");
+        std::fs::write(&bin, "").unwrap();
+        Fx {
+            _d: d,
+            env,
+            paths,
+            bin,
+        }
     }
 
-    const BIN: &str = "/opt/aivory-warden";
+    #[test]
+    fn first_bak_is_kept() {
+        let f = fx(Os::Linux);
+        let path = client("gemini").unwrap().config_path(&f.env);
+        put(&path, "{\"x\":1}");
+        add(&f.env, &f.paths, "gemini", f.bin.as_path()).unwrap();
+        remove(&f.env, &f.paths, "gemini").unwrap();
+        let bak = std::fs::read_to_string(format!("{}.bak", path.display())).unwrap();
+        assert_eq!(bak, "{\"x\":1}");
+    }
+
+    #[test]
+    fn stale_entry_is_rewritten() {
+        let f = fx(Os::Linux);
+        let path = client("gemini").unwrap().config_path(&f.env);
+        add(&f.env, &f.paths, "gemini", Path::new("/gone/aivory-warden")).unwrap();
+        assert_eq!(
+            add(&f.env, &f.paths, "gemini", f.bin.as_path()).unwrap(),
+            Outcome::Added
+        );
+        let v = read_json(&path);
+        assert_eq!(
+            v["mcpServers"][ENTRY]["command"],
+            f.bin.to_string_lossy().as_ref()
+        );
+        assert_eq!(pairs(&f).len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_keeps_mode_follows_symlink_and_new_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let real = d.path().join("real.json");
+        let link = d.path().join("link.json");
+        std::fs::write(&real, "{}").unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o640)).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        write_with_backup(&link, "{\"a\":1}").unwrap();
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(std::fs::read_to_string(&real).unwrap(), "{\"a\":1}");
+        let mode = std::fs::metadata(&real).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o640);
+        let fresh = d.path().join("new.json");
+        write_with_backup(&fresh, "{}").unwrap();
+        let mode = std::fs::metadata(&fresh).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
 
     fn pairs(f: &Fx) -> Vec<String> {
         PairingFile::new(f.paths.pairing_file())
@@ -688,12 +796,12 @@ mod tests {
             let c = client(id).unwrap();
             let path = c.config_path(&f.env);
             assert_eq!(
-                add(&f.env, &f.paths, id, Path::new(BIN)).unwrap(),
+                add(&f.env, &f.paths, id, f.bin.as_path()).unwrap(),
                 Outcome::Added
             );
             let v = read_json(&path);
             let e = &v[json_key(c.format)][ENTRY];
-            assert_eq!(e["command"], BIN);
+            assert_eq!(e["command"], f.bin.to_string_lossy().as_ref());
             assert_eq!(e["args"], json!(["mcp"]));
             assert!(e["env"]["WARDEN_TOKEN"].as_str().unwrap().len() > 8);
             assert_eq!(e.get("type").is_some(), c.typed);
@@ -710,7 +818,7 @@ mod tests {
             &path,
             r#"{"theme":"dark","mcpServers":{"other":{"command":"x"}}}"#,
         );
-        add(&f.env, &f.paths, "cursor", Path::new(BIN)).unwrap();
+        add(&f.env, &f.paths, "cursor", f.bin.as_path()).unwrap();
         let v = read_json(&path);
         assert_eq!(v["theme"], "dark");
         assert_eq!(v["mcpServers"]["other"]["command"], "x");
@@ -722,12 +830,12 @@ mod tests {
     #[test]
     fn second_add_is_noop() {
         let f = fx(Os::Linux);
-        add(&f.env, &f.paths, "gemini", Path::new(BIN)).unwrap();
+        add(&f.env, &f.paths, "gemini", f.bin.as_path()).unwrap();
         let path = client("gemini").unwrap().config_path(&f.env);
         let before = std::fs::read(&path).unwrap();
         let n = pairs(&f).len();
         assert_eq!(
-            add(&f.env, &f.paths, "gemini", Path::new(BIN)).unwrap(),
+            add(&f.env, &f.paths, "gemini", f.bin.as_path()).unwrap(),
             Outcome::AlreadyConnected
         );
         assert_eq!(std::fs::read(&path).unwrap(), before);
@@ -737,8 +845,8 @@ mod tests {
     #[test]
     fn separate_token_per_client() {
         let f = fx(Os::Linux);
-        add(&f.env, &f.paths, "gemini", Path::new(BIN)).unwrap();
-        add(&f.env, &f.paths, "cursor", Path::new(BIN)).unwrap();
+        add(&f.env, &f.paths, "gemini", f.bin.as_path()).unwrap();
+        add(&f.env, &f.paths, "cursor", f.bin.as_path()).unwrap();
         assert_eq!(pairs(&f), vec!["mcp-gemini", "mcp-cursor"]);
         let tok = |id: &str| {
             let v = read_json(&client(id).unwrap().config_path(&f.env));
@@ -755,8 +863,8 @@ mod tests {
         let f = fx(Os::Linux);
         let path = client("cursor").unwrap().config_path(&f.env);
         put(&path, r#"{"mcpServers":{"other":{"command":"x"}}}"#);
-        add(&f.env, &f.paths, "cursor", Path::new(BIN)).unwrap();
-        add(&f.env, &f.paths, "gemini", Path::new(BIN)).unwrap();
+        add(&f.env, &f.paths, "cursor", f.bin.as_path()).unwrap();
+        add(&f.env, &f.paths, "gemini", f.bin.as_path()).unwrap();
         assert_eq!(
             remove(&f.env, &f.paths, "cursor").unwrap(),
             Outcome::Removed
@@ -778,7 +886,7 @@ mod tests {
         let old = "# my codex config\nmodel = \"x\" # inline\n\n[mcp_servers.other]\ncommand = \"y\" # keep\n";
         put(&path, old);
         assert_eq!(
-            add(&f.env, &f.paths, "codex", Path::new(BIN)).unwrap(),
+            add(&f.env, &f.paths, "codex", f.bin.as_path()).unwrap(),
             Outcome::Added
         );
         let t = std::fs::read_to_string(&path).unwrap();
@@ -791,7 +899,7 @@ mod tests {
             old
         );
         assert_eq!(
-            add(&f.env, &f.paths, "codex", Path::new(BIN)).unwrap(),
+            add(&f.env, &f.paths, "codex", f.bin.as_path()).unwrap(),
             Outcome::AlreadyConnected
         );
         assert_eq!(remove(&f.env, &f.paths, "codex").unwrap(), Outcome::Removed);
@@ -824,7 +932,7 @@ mod tests {
         let f = fx(Os::Linux);
         let path = client("vscode").unwrap().config_path(&f.env);
         put(&path, "// comment\n{\"servers\":{}}");
-        assert!(add(&f.env, &f.paths, "vscode", Path::new(BIN)).is_err());
+        assert!(add(&f.env, &f.paths, "vscode", f.bin.as_path()).is_err());
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "// comment\n{\"servers\":{}}"
@@ -835,6 +943,6 @@ mod tests {
     #[test]
     fn unknown_client_is_error() {
         let f = fx(Os::Linux);
-        assert!(add(&f.env, &f.paths, "nope", Path::new(BIN)).is_err());
+        assert!(add(&f.env, &f.paths, "nope", f.bin.as_path()).is_err());
     }
 }

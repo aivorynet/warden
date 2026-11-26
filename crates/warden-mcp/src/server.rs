@@ -64,6 +64,33 @@ pub struct SetPolicyArgs {
     pub lead_days: Option<u32>,
 }
 
+/// Arguments of `save_secret`.
+#[derive(Deserialize, JsonSchema)]
+pub struct SaveSecretArgs {
+    /// Short label, for example "GitLab CI token".
+    pub label: String,
+    /// The secret value.
+    pub value: String,
+    /// Provider guess: gitlab, aws-iam, cloudflare, openai.
+    #[serde(default)]
+    pub provider_hint: Option<String>,
+    /// End date of the token (YYYY-MM-DD).
+    #[serde(default)]
+    pub expires: Option<String>,
+    /// Where the token comes from, for example the API URL that created it.
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+impl std::fmt::Debug for SaveSecretArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SaveSecretArgs")
+            .field("label", &self.label)
+            .field("value", &"<redacted>")
+            .finish_non_exhaustive()
+    }
+}
+
 /// How to open a new daemon connection after the old one broke.
 #[derive(Clone)]
 pub struct Reconnect {
@@ -349,6 +376,48 @@ impl WardenMcp {
             _ => Ok(pretty(&policy_json(&self.get(id).await?))),
         }
     }
+
+    /// Put a new secret into the inbox. The user accepts it in the app or the CLI.
+    #[tool(
+        description = "Save a new secret (for example a token that you just created) to the Warden inbox. The user must accept it in the desktop app or with `awd inbox accept <id>` before Warden manages it. Needs the inbox permission (`awd pair <name> --cap mcp --cap inbox`). The value is never returned."
+    )]
+    async fn save_secret(
+        &self,
+        Parameters(a): Parameters<SaveSecretArgs>,
+    ) -> Result<String, String> {
+        if a.label.trim().is_empty() || a.value.is_empty() {
+            return Err("label and value must not be empty".into());
+        }
+        let expires_at = match a.expires.as_deref() {
+            None | Some("") => None,
+            Some(d) => Some(
+                chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d")
+                    .map_err(|_| "expires must be YYYY-MM-DD".to_owned())?
+                    .and_hms_opt(0, 0, 0)
+                    .map(|t| t.and_utc())
+                    .ok_or("expires must be YYYY-MM-DD")?,
+            ),
+        };
+        let req = Request::InboxAdd {
+            origin: a.source.unwrap_or_else(|| "agent".into()),
+            label: a.label.clone(),
+            value: warden_core::SecretValue::new(a.value),
+            provider_hint: a.provider_hint,
+            expires_at,
+        };
+        match self.call(req).await? {
+            Response::InboxAdded { id } => Ok(format!(
+                "Saved `{}` to the Warden inbox as entry {id}. Ask the user to accept it in the \
+                 desktop app or with `awd inbox accept {id}`.",
+                a.label
+            )),
+            Response::Error { code, message } => Err(describe_error(&code, &message)),
+            other => Err(format!(
+                "unexpected answer from the daemon ({})",
+                kind(&other)
+            )),
+        }
+    }
 }
 
 fn kind(r: &Response) -> &'static str {
@@ -490,6 +559,13 @@ mod tests {
                     tokio::time::sleep(Duration::from_millis(300)).await;
                     Response::Ok
                 }
+                Request::InboxAdd { value, origin, .. } => {
+                    assert_eq!(value.expose(), SECRET);
+                    assert_eq!(origin, "https://gitlab.example.com/api/v4");
+                    Response::InboxAdded {
+                        id: warden_core::InboxId::new(),
+                    }
+                }
                 Request::RotateNow { .. } => Response::Error {
                     code: "needs_confirmation".into(),
                     message: "confirm in the desktop app".into(),
@@ -583,6 +659,7 @@ mod tests {
                 "http_request",
                 "list_secrets",
                 "request_rotation",
+                "save_secret",
                 "set_policy"
             ]
         );
@@ -606,5 +683,69 @@ mod tests {
         let text = serde_json::to_string(&r).unwrap();
         assert!(text.contains("needs_confirmation") && text.contains("desktop app"));
         assert!(!text.contains(SECRET));
+    }
+
+    struct CapStore(String, Vec<Capability>);
+    #[async_trait::async_trait]
+    impl PairingStore for CapStore {
+        async fn lookup(&self, token: &ClientToken) -> Option<Vec<Capability>> {
+            (token.expose() == self.0).then(|| self.1.clone())
+        }
+    }
+
+    async fn mcp_with(tag: &str, caps: Vec<Capability>) -> WardenMcp {
+        let token = ClientToken::generate().expose().to_string();
+        #[cfg(unix)]
+        let path = {
+            let d = tempfile::tempdir().unwrap();
+            let p = d.path().join("w.sock");
+            std::mem::forget(d);
+            p
+        };
+        #[cfg(windows)]
+        let path = std::path::PathBuf::from(format!(
+            r"\\.\pipe\aivory-warden-mcp-save-{tag}-{}",
+            std::process::id()
+        ));
+        #[cfg(unix)]
+        let _ = tag;
+        let server = Server::bind(Some(&path))
+            .unwrap()
+            .with_pairing_store(Arc::new(CapStore(token.clone(), caps)));
+        let handler = Arc::new(Fake {
+            id: ItemId::new(),
+            _secret: SECRET.into(),
+        });
+        tokio::spawn(server.serve(handler));
+        WardenMcp::new(Client::connect(Some(&path), Some(&token)).await.unwrap())
+    }
+
+    fn save_args() -> SaveSecretArgs {
+        SaveSecretArgs {
+            label: "GitLab CI".into(),
+            value: SECRET.into(),
+            provider_hint: Some("gitlab".into()),
+            expires: Some("2026-12-31".into()),
+            source: Some("https://gitlab.example.com/api/v4".into()),
+        }
+    }
+
+    #[tokio::test]
+    async fn save_secret_goes_to_the_inbox_and_never_echoes() {
+        let mcp = mcp_with("ok", vec![Capability::McpUse, Capability::InboxWrite]).await;
+        let out = mcp.save_secret(Parameters(save_args())).await.unwrap();
+        assert!(out.contains("inbox"), "{out}");
+        assert!(!out.contains(SECRET));
+        assert!(!format!("{:?}", save_args()).contains(SECRET));
+    }
+
+    #[tokio::test]
+    async fn save_secret_needs_the_inbox_capability() {
+        let mcp = mcp_with("denied", vec![Capability::McpUse]).await;
+        let err = mcp.save_secret(Parameters(save_args())).await.unwrap_err();
+        assert!(!err.contains(SECRET));
+        let mut bad = save_args();
+        bad.expires = Some("31.12.2026".into());
+        assert!(mcp.save_secret(Parameters(bad)).await.is_err());
     }
 }

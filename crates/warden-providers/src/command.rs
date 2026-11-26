@@ -99,14 +99,11 @@ async fn run(cmd: &[String], name: &str, input: Value) -> Result<String> {
         .map_err(|_| WardenError::Provider("command timed out".into()))?
         .map_err(|e| WardenError::Provider(format!("command failed: {e}")))?;
     if !out.status.success() {
-        let err: String = String::from_utf8_lossy(&out.stderr)
-            .chars()
-            .take(200)
-            .collect();
+        // Stderr can echo the secret. Report only its line count.
+        let lines = String::from_utf8_lossy(&out.stderr).lines().count();
         return Err(WardenError::Provider(format!(
-            "command exited with {}: {}",
+            "command exited with {} ({lines} stderr lines not shown)",
             out.status.code().unwrap_or(-1),
-            err.trim()
         )));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
@@ -114,7 +111,7 @@ async fn run(cmd: &[String], name: &str, input: Value) -> Result<String> {
 
 fn parse(out: &str) -> Result<Output> {
     serde_json::from_str(out.trim())
-        .map_err(|e| WardenError::Provider(format!("command output is not valid JSON: {e}")))
+        .map_err(|_| WardenError::Provider("command output is not valid JSON".into()))
 }
 
 fn issued(o: Output) -> Result<IssuedToken> {
@@ -265,6 +262,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn errors_never_echo_script_output() {
+        #[cfg(unix)]
+        let (junk, fail) = (
+            vec![
+                "sh".to_string(),
+                "-c".into(),
+                "echo LEAKOUT; echo LEAKERR >&2".into(),
+            ],
+            vec![
+                "sh".to_string(),
+                "-c".into(),
+                "echo LEAKERR >&2; exit 3".into(),
+            ],
+        );
+        #[cfg(windows)]
+        let (junk, fail) = (
+            vec![
+                "cmd".to_string(),
+                "/C".into(),
+                "echo LEAKOUT&echo LEAKERR 1>&2".into(),
+            ],
+            vec![
+                "cmd".to_string(),
+                "/C".into(),
+                "echo LEAKERR 1>&2&exit 3".into(),
+            ],
+        );
+        let p = CommandProvider::from_config(&json!({ "verify": junk, "revoke": fail })).unwrap();
+        let c = SecretValue::new("x");
+        let e = p.verify(&c).await.unwrap_err().to_string();
+        assert!(e.contains("not valid JSON") && !e.contains("LEAK"), "{e}");
+        let e = p.revoke(&c, "1").await.unwrap_err().to_string();
+        assert!(e.contains("exited with 3") && !e.contains("LEAK"), "{e}");
+    }
+
+    #[tokio::test]
     async fn failing_command_and_missing_script() {
         #[cfg(unix)]
         let bad = vec!["sh".to_string(), "-c".into(), "exit 3".into()];
@@ -289,7 +322,7 @@ mod tests {
         let chatty = vec![
             "sh".to_string(),
             "-c".into(),
-            "head -c 400000 /dev/zero | tr '\0' a; head -c 400000 /dev/zero | tr '\0' b >&2; cat >/dev/null"
+            r"head -c 400000 /dev/zero | tr '\0' a; head -c 400000 /dev/zero | tr '\0' b >&2; cat >/dev/null"
                 .into(),
         ];
         let p = CommandProvider::from_config(&json!({ "revoke": chatty })).unwrap();

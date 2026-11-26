@@ -20,6 +20,15 @@ test("gitlab token", () => {
   assert.equal(r[0]?.value, GL);
 });
 
+test("gitlab token with version and checksum parts", () => {
+  const gl = GL + "Zx9Qw3Er7Ty1" + ".01." + "1a2b3c4d5";
+  const r = detectTokens(`Your token: ${gl}. Copy it`, "gitlab.com");
+  assert.equal(r.length, 1);
+  assert.equal(r[0]?.value, gl);
+  // A sentence period after an old-style token is not part of it.
+  assert.equal(detectTokens(`Token ${GL}.`, "gitlab.com")[0]?.value, GL);
+});
+
 test("openai variants", () => {
   for (const k of [OAI, OAI_ADMIN, OAI_OLD]) {
     const r = detectTokens(`key=${k}`, "platform.openai.com");

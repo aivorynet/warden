@@ -32,7 +32,31 @@ fn abs(p: &str) -> Result<PathBuf> {
 }
 
 fn key_path(k: &str) -> Vec<String> {
-    k.split('.').map(str::to_owned).collect()
+    let mut parts = vec![String::new()];
+    let mut chars = k.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if chars.peek() == Some(&'.') => {
+                chars.next();
+                parts.last_mut().expect("never empty").push('.');
+            }
+            '.' => parts.push(String::new()),
+            _ => parts.last_mut().expect("never empty").push(c),
+        }
+    }
+    parts
+}
+
+#[cfg(test)]
+mod key_path_tests {
+    use super::key_path;
+
+    #[test]
+    fn escaped_dot_stays_in_segment() {
+        assert_eq!(key_path("a.b"), ["a", "b"]);
+        assert_eq!(key_path(r"a\.b.c"), ["a.b", "c"]);
+        assert_eq!(key_path(r"a\b"), [r"a\b"]);
+    }
 }
 
 /// Parse one sink spec. File paths become absolute.

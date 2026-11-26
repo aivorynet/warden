@@ -1,4 +1,4 @@
-Aivory Warden - status 2026-11-24
+Aivory Warden - status 2026-11-25 (launch review)
 
 Done (all gates green on Windows: fmt, clippy -D warnings, test, deny):
 - Crates: warden-core, -vault, -providers, -sinks, -engine, -ipc, -mcp, -coffee, -native-host, aivory-warden (bin + awd).
@@ -40,3 +40,36 @@ NEXT STEP (2026-11-25, before reboot):
   start service), then Settings > quick unlock on, Lock, unlock with Windows Hello (first real Hello test).
 - Then: extension test in Edge (awd extension install, Load unpacked extension\dist, capture to inbox).
 - Paul: remove GitLab CI variable RECEIPT_SIGNING_KEY. Check VS Code and Windsurf MCP config paths with real tools.
+
+LAUNCH REVIEW (branch launch-review, 2026-11-25, not committed):
+- 4 review passes (vault/core, engine/providers, ipc/mcp/extension, binary/sinks), about 40 findings, fixes + tests.
+- Gates green: Windows fmt, clippy -D warnings, 269 tests, cargo deny; Linux (rust:1.95 + libdbus-1-dev, non-root)
+  clippy + 268 tests (desktop crate excluded); extension npm test 15.
+- New: MCP tool save_secret (inbox, needs `--cap inbox`, origin prefix `mcp:`, provider hint ignored on accept),
+  extension install launcher for WARDEN_HOME, `--id` default = published id, add/inbox accept write places at once,
+  manual tokens refuse rotation without a "failed" status.
+- Dogfood (test vault in the session scratchpad, deleted afterwards; keychain entry removed; native host unregistered):
+  - Cloudflare token from aivory-guard-infrastructure/.env as MANUAL: `awd exec` and a real `claude -p` agent over MCP
+    http_request (verify: active). No leak in agent output or daemon log.
+  - Real Edge test profile (--load-extension, CDP): id ofafkpmfikeikdkldpkgmibfbphkmgai, sendNativeMessage ->
+    launcher -> daemon inbox works. Agent save_secret -> inbox -> accept works.
+- 2026-11-26 real GitLab run (Paul's Edge, extension loaded unpacked from extension\dist, test vault in scratchpad,
+  deleted afterwards; native host unregistered; test keychain entry removed):
+  - Toolbar capture of new PAT aivw_dogfood_20261126 (id 122) -> inbox -> `awd inbox accept --provider gitlab` -> OK.
+  - `awd exec` -> GitLab /personal_access_tokens/self: active, scopes ok. `awd rotate` -> new id 123, .env sink
+    written and verified (HTTP 200); old id 122 revoked (HTTP 401). End date = today + 30d (expiry_days default).
+  - Found + fixed: extension cut newer GitLab tokens (glpat-<payload>.01.<crc>) at the first dot.
+  - Found + fixed: popup said "confirm in app" with no app running; now "accept in app or awd inbox".
+- NOT verified: macOS; tray; Windows Hello; mcp-setup on real configs.
+- GitLab test PATs still active on gitlab.ilscipio.com: aivw_dogfood_20261125 (id 121, ends 2026-12-09) and
+  aivw_dogfood_20261126 (id 123, ends 2026-12-26, value only in the deleted test vault). Paul: revoke both.
+- The extension "Save to Warden" stays loaded unpacked in Paul's Edge Default profile.
+- Keychain entry 01a211d3-...aivory-warden is not from this session (left alone).
+- Open findings: OpenAI admin-key orphan cleanup; a hand-added OpenAI key without an id is never revoked after a
+  rotation; extension pending capture lost if the MV3 worker dies; no IPC idle timeout or connection cap; v1 header
+  downgrade check; keychain entry shared by two local dirs of one vault; unlock has no --password-stdin;
+  no test for the create cleanup when the header write fails.
+- Paul approved (2026-11-26): save_secret stays; mcp-setup grants `mcp` + `inbox`; commit and push launch-review.
+
+NEXT STEP: merge launch-review after CI. Then the tray/desktop app test (accept from the app, quick unlock with
+Windows Hello) and mcp-setup on real configs.

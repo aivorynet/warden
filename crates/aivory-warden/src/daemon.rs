@@ -44,7 +44,40 @@ fn weakens_policy(
     if new.lead_time.is_zero() && !current.lead_time.is_zero() {
         return Some("removing the lead time needs confirmation in the desktop app");
     }
+    if new.grace > current.grace {
+        return Some("a longer grace period needs confirmation in the desktop app");
+    }
     None
+}
+
+/// Host part of `url` for the audit log. No path, query or user info.
+fn url_host(url: &str) -> String {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let auth = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = auth.rsplit_once('@').map_or(auth, |(_, h)| h);
+    host.chars().take(253).collect()
+}
+
+/// Write `value` to every place in `specs` and read it back. Return the failures.
+async fn write_sinks(specs: &[warden_core::SinkSpec], value: &SecretValue) -> Vec<String> {
+    let mut failed = Vec::new();
+    for spec in specs {
+        let res = match warden_sinks::build(spec) {
+            Err(e) => Err(format!("{spec:?}: {e}")),
+            Ok(sink) => match sink.write(value).await {
+                Err(e) => Err(format!("{}: {e}", sink.describe())),
+                Ok(()) => match sink.read_back_matches(value).await {
+                    Ok(true) => Ok(()),
+                    Ok(false) => Err(format!("{}: read back does not match", sink.describe())),
+                    Err(e) => Err(format!("{}: {e}", sink.describe())),
+                },
+            },
+        };
+        if let Err(e) = res {
+            failed.push(e);
+        }
+    }
+    failed
 }
 
 /// Everything that exists only while the vault is unlocked.
@@ -492,6 +525,11 @@ impl Daemon {
                 "parent must be an existing admin item",
             ));
         }
+        for spec in &draft.sinks {
+            if let Err(e) = warden_sinks::build(spec) {
+                return Err(error("bad_request", format!("invalid sink: {e}")));
+            }
+        }
         Ok(Item {
             id: ItemId::new(),
             name: draft.name,
@@ -510,20 +548,65 @@ impl Daemon {
         })
     }
 
-    fn add_item(&self, draft: ItemDraft, secret: SecretValue) -> Response {
+    async fn add_item(&self, draft: ItemDraft, secret: SecretValue) -> Response {
+        let u = match self.require() {
+            Ok(u) => u,
+            Err(r) => return r,
+        };
+        let item = {
+            let mut v = lock(&u.vault);
+            let item = match self.new_item(&v, draft) {
+                Ok(i) => i,
+                Err(r) => return r,
+            };
+            let secrets = [(TOKEN_SECRET.to_owned(), secret.clone())]
+                .into_iter()
+                .collect();
+            if let Err(e) = v.put(item.clone(), secrets) {
+                return err_resp(&e);
+            }
+            item
+        };
+        // The places get the value now, not only at the first rotation.
+        let failed = write_sinks(&item.sinks, &secret).await;
+        if failed.is_empty() {
+            Response::Added { item: item.id }
+        } else {
+            error(
+                "sinks_incomplete",
+                format!(
+                    "token {} is stored, but a place failed: {}",
+                    item.id,
+                    failed.join("; ")
+                ),
+            )
+        }
+    }
+
+    /// Delete an item. Refuse while derived items still use it as their parent.
+    fn delete_item(&self, id: ItemId) -> Response {
         let u = match self.require() {
             Ok(u) => u,
             Err(r) => return r,
         };
         let mut v = lock(&u.vault);
-        let item = match self.new_item(&v, draft) {
-            Ok(i) => i,
-            Err(r) => return r,
-        };
-        let id = item.id;
-        let secrets = [(TOKEN_SECRET.to_owned(), secret)].into_iter().collect();
-        match v.put(item, secrets) {
-            Ok(()) => Response::Added { item: id },
+        let children: Vec<String> = v
+            .items()
+            .iter()
+            .filter(|i| i.kind == ItemKind::Derived { parent: id })
+            .map(|i| i.name.clone())
+            .collect();
+        if !children.is_empty() {
+            return error(
+                "conflict",
+                format!(
+                    "derived tokens use this token: {}. Delete them first",
+                    children.join(", ")
+                ),
+            );
+        }
+        match v.delete(&id) {
+            Ok(()) => Response::Ok,
             Err(e) => err_resp(&e),
         }
     }
@@ -609,6 +692,12 @@ impl Daemon {
         let Some(mut item) = v.get(&id).cloned() else {
             return error("not_found", format!("item {id}"));
         };
+        if policy.interval.is_some_and(|d| d.is_zero()) {
+            return error(
+                "bad_request",
+                "the rotation interval must be longer than zero",
+            );
+        }
         let full = session.capabilities().contains(&Capability::Full);
         if !full {
             let default_interval = lock(&self.settings).default_interval;
@@ -806,6 +895,8 @@ impl Daemon {
             Some(Err(e)) => return err_resp(&e),
             Some(Ok(x)) => x,
         };
+        let host = url_host(&call.url);
+        self.local_audit("mcp_http", &format!("{item} {} {host}", call.method));
         match proxy::execute(&policy, &secret, call).await {
             Ok(r) => Response::McpHttpResponse {
                 status: r.status,
@@ -961,10 +1052,14 @@ impl Daemon {
             Ok(v) => v,
             Err(e) => return err_resp(&e),
         };
-        let r = self.add_item(draft, value);
-        if matches!(r, Response::Added { .. })
-            && let Err(e) = self.inbox.remove(id)
-        {
+        let r = self.add_item(draft, value).await;
+        // The item is stored in both cases, so the entry goes.
+        let stored = match &r {
+            Response::Added { .. } => true,
+            Response::Error { code, .. } => code == "sinks_incomplete",
+            _ => false,
+        };
+        if stored && let Err(e) = self.inbox.remove(id) {
             return err_resp(&e);
         }
         r
@@ -1060,11 +1155,18 @@ impl Handler for Daemon {
             Request::GetItem { item } => match self.require() {
                 Err(r) => r,
                 Ok(u) => match lock(&u.vault).get(&item) {
-                    Some(i) => Response::Item(Box::new(i.clone())),
+                    Some(i) if session.capabilities().contains(&Capability::Full) => {
+                        Response::Item(Box::new(i.clone()))
+                    }
+                    // Other clients get no sink paths, hosts or key file paths.
+                    Some(i) => Response::Item(Box::new(Item {
+                        sinks: Vec::new(),
+                        ..i.clone()
+                    })),
                     None => error("not_found", format!("item {item}")),
                 },
             },
-            Request::AddItem { draft, secret } => self.add_item(draft, secret),
+            Request::AddItem { draft, secret } => self.add_item(draft, secret).await,
             Request::CreateDerived { draft } => self.create_derived(draft).await,
             Request::Handover { item, to } => self.handover(item, to),
             Request::UpdatePolicy { item, policy } => self.update_policy(session, item, policy),
@@ -1080,13 +1182,7 @@ impl Handler for Daemon {
             Request::Unpair { id } => self.unpair(&id),
             Request::ListDevices => self.list_devices(),
             Request::RotateNow { item } => self.rotate(session, item).await,
-            Request::DeleteItem { item } => match self.require() {
-                Err(r) => r,
-                Ok(u) => match lock(&u.vault).delete(&item) {
-                    Ok(()) => Response::Ok,
-                    Err(e) => err_resp(&e),
-                },
-            },
+            Request::DeleteItem { item } => self.delete_item(item),
             Request::Unlock {
                 password,
                 secret_key,
@@ -1104,7 +1200,15 @@ impl Handler for Daemon {
                 value,
                 provider_hint,
                 expires_at,
-            } => self.inbox_add(origin, label, value, provider_hint, expires_at),
+            } => {
+                // An MCP client cannot claim a browser origin.
+                let mcp = session
+                    .capabilities()
+                    .iter()
+                    .any(|c| matches!(c, Capability::McpUse | Capability::McpAdmin));
+                let origin = if mcp { format!("mcp:{origin}") } else { origin };
+                self.inbox_add(origin, label, value, provider_hint, expires_at)
+            }
             Request::InboxAccept { id, draft } => self.inbox_accept(id, draft).await,
             Request::InboxReject { id } => match self.inbox.remove(id) {
                 Ok(true) => Response::Ok,
@@ -1452,6 +1556,8 @@ mod tests {
         assert!(with(&|p| p.lead_time = Duration::ZERO).is_some());
         assert!(with(&|p| p.interval = Some(7 * day)).is_none());
         assert!(with(&|p| p.lead_time = 5 * day).is_none());
+        assert!(with(&|p| p.grace = cur.grace + day).is_some());
+        assert!(with(&|p| p.grace = Duration::ZERO).is_none());
         // A value above 365 days is refused even when the current one is longer.
         let long = RotationPolicy {
             interval: Some(500 * day),

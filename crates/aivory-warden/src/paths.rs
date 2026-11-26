@@ -1,6 +1,6 @@
 //! Paths of the config dir, the data dir and the IPC endpoint.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use warden_core::{Result, WardenError};
 
 /// All paths that the binary uses.
@@ -99,6 +99,11 @@ impl Paths {
     /// Default vault directory.
     pub fn default_vault(&self) -> PathBuf {
         self.data.join("vault")
+    }
+
+    /// The `WARDEN_HOME` directory, if one is set.
+    pub fn home_override(&self) -> Option<&Path> {
+        self.home.as_deref()
     }
 
     /// IPC endpoint. `None` selects the per-user default of `warden-ipc`.

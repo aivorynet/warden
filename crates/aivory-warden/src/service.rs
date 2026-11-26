@@ -122,6 +122,14 @@ pub fn unit_path(os: Os, home: &Path) -> Option<PathBuf> {
     }
 }
 
+/// Image names of the daemon process on Windows: the binary and its alias.
+/// PowerShell filter that stops only `daemon` processes of Warden, not `mcp` or the host.
+fn windows_stop_daemon(pid: u32) -> String {
+    format!(
+        r"Get-CimInstance Win32_Process | Where-Object {{ ($_.Name -eq 'aivory-warden.exe' -or $_.Name -eq 'awd.exe') -and $_.CommandLine -match '\sdaemon(\s|$)' -and $_.ProcessId -ne {pid} }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}"
+    )
+}
+
 /// What `service install` does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallPlan {
@@ -150,7 +158,15 @@ pub fn install_plan(os: Os, exe: &Path, home: &Path, uid: &str) -> InstallPlan {
                 .unwrap_or_default();
             InstallPlan {
                 file: file.map(|p| (p, launchd_plist(exe))),
-                commands: vec![vec!["launchctl".into(), "bootstrap".into(), target, plist]],
+                // `bootout` first: `bootstrap` fails when the job is already loaded.
+                commands: vec![
+                    vec![
+                        "launchctl".into(),
+                        "bootout".into(),
+                        format!("{target}/{LAUNCHD_LABEL}"),
+                    ],
+                    vec!["launchctl".into(), "bootstrap".into(), target, plist],
+                ],
             }
         }
         Os::Windows => {
@@ -165,7 +181,10 @@ pub fn install_plan(os: Os, exe: &Path, home: &Path, uid: &str) -> InstallPlan {
 }
 
 /// What `service uninstall` does. Run the commands first, then remove the file.
-pub fn uninstall_plan(os: Os, home: &Path, uid: &str) -> (Vec<CmdLine>, Option<PathBuf>) {
+///
+/// `pid` is the id of the current process. On Windows the plan stops the daemon that install
+/// started, and it never stops this process.
+pub fn uninstall_plan(os: Os, home: &Path, uid: &str, pid: u32) -> (Vec<CmdLine>, Option<PathBuf>) {
     match os {
         Os::Linux => (
             vec![cmd(&[
@@ -185,10 +204,21 @@ pub fn uninstall_plan(os: Os, home: &Path, uid: &str) -> (Vec<CmdLine>, Option<P
             ]],
             unit_path(os, home),
         ),
-        Os::Windows => (
-            vec![cmd(&["reg", "delete", RUN_KEY, "/v", task_name(), "/f"])],
-            None,
-        ),
+        Os::Windows => {
+            let stop = windows_stop_daemon(pid);
+            let cmds = vec![
+                cmd(&["reg", "delete", RUN_KEY, "/v", task_name(), "/f"]),
+                // The daemon runs as the binary or as its alias. MCP servers keep running.
+                cmd(&[
+                    "powershell",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    &stop,
+                ]),
+            ];
+            (cmds, None)
+        }
     }
 }
 
@@ -251,7 +281,11 @@ pub fn install(exe: &Path) -> Result<()> {
         std::fs::write(path, text)?;
     }
     for c in &plan.commands {
-        run_ok(c)?;
+        if c.get(1).map(String::as_str) == Some("bootout") {
+            let _ = run(c); // the job may not be loaded
+        } else {
+            run_ok(c)?;
+        }
     }
     if os == Os::Windows {
         start_detached(exe)?;
@@ -293,7 +327,7 @@ fn start_detached(_exe: &Path) -> Result<()> {
 /// Remove the service for the current user.
 pub fn uninstall() -> Result<()> {
     let os = Os::current();
-    let (cmds, file) = uninstall_plan(os, &home_dir()?, &uid());
+    let (cmds, file) = uninstall_plan(os, &home_dir()?, &uid(), std::process::id());
     for c in &cmds {
         // A service that is not installed is not an error.
         let _ = run(c);
@@ -386,8 +420,12 @@ mod tests {
         );
         let (path, _) = p.file.unwrap();
         assert!(path.ends_with("Library/LaunchAgents/net.aivory.warden.plist"));
-        assert_eq!(p.commands[0][..3], ["launchctl", "bootstrap", "gui/501"]);
-        let (cmds, file) = uninstall_plan(Os::MacOs, Path::new("/Users/u"), "501");
+        assert_eq!(
+            p.commands[0],
+            ["launchctl", "bootout", "gui/501/net.aivory.warden"]
+        );
+        assert_eq!(p.commands[1][..3], ["launchctl", "bootstrap", "gui/501"]);
+        let (cmds, file) = uninstall_plan(Os::MacOs, Path::new("/Users/u"), "501", 7);
         assert_eq!(
             cmds[0],
             ["launchctl", "bootout", "gui/501/net.aivory.warden"]
@@ -415,7 +453,15 @@ mod tests {
                 "AivoryWarden"
             ]
         );
-        let (cmds, _) = uninstall_plan(Os::Windows, Path::new("."), "");
+        let (cmds, _) = uninstall_plan(Os::Windows, Path::new("."), "", 4242);
+        assert_eq!(cmds.len(), 2);
+        assert_eq!(cmds[1][0], "powershell");
+        let script = &cmds[1][4];
+        assert!(
+            script.contains("daemon") && script.contains("-ne 4242"),
+            "{script}"
+        );
+        assert!(script.contains("'awd.exe'") && script.contains("'aivory-warden.exe'"));
         assert_eq!(
             cmds[0],
             [

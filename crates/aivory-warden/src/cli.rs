@@ -418,13 +418,16 @@ enum ServiceCmd {
 enum ExtensionCmd {
     /// Register the native messaging host for the extension.
     Install {
-        /// Extension id (32 letters from a to p).
-        #[arg(long)]
+        /// Extension id (32 letters from a to p). Default: the id of the published extension.
+        #[arg(long, default_value = EXTENSION_ID)]
         id: String,
     },
     /// Remove the registration.
     Uninstall,
 }
+
+/// Id of the published extension. The public key in `extension/manifest.json` fixes it.
+const EXTENSION_ID: &str = "ofafkpmfikeikdkldpkgmibfbphkmgai";
 
 struct Ctx {
     paths: Paths,
@@ -1025,7 +1028,7 @@ async fn status(ctx: &Ctx) -> Code {
     };
     println!(
         "\u{25CF} daemon running \u{00B7} {state} \u{00B7} device {} \u{00B7} {} tokens{}",
-        &dev[..8],
+        &dev[..13],
         s.item_count,
         if s.inbox_count > 0 {
             format!(" \u{00B7} {} in inbox", s.inbox_count)
@@ -1170,8 +1173,9 @@ async fn build_draft(
         None => None,
     };
     let parent_id = parent_item.as_ref().map(|p| p.id);
+    let explicit_name = a.name.is_some();
     let name = match a.name.take().or(hint_name.clone()) {
-        Some(n) if !tty || a.name.is_some() || hint_name.is_none() => n,
+        Some(n) if !tty || explicit_name || hint_name.is_none() => n,
         Some(n) => ask("Name", Some(n), false)?,
         None if tty => ask("Name", None, false)?,
         None => return Err(cfg_err("missing --name")),
@@ -1543,7 +1547,7 @@ async fn inbox(ctx: &Ctx, cmd: Option<InboxCmd>) -> Code {
             ];
             for e in all {
                 rows.push(vec![
-                    e.id.to_string()[..8].to_owned(),
+                    e.id.to_string()[..13].to_owned(),
                     e.origin,
                     e.label,
                     e.provider_hint.unwrap_or_else(|| "-".into()),
@@ -1560,7 +1564,12 @@ async fn inbox(ctx: &Ctx, cmd: Option<InboxCmd>) -> Code {
         Some(InboxCmd::Accept(a)) => {
             let AcceptArgs { id, item } = *a;
             let e = inbox_find(&mut c, &id).await?;
-            let hint = e.provider_hint.as_deref().and_then(ProviderArg::from_hint);
+            // An agent wrote the hint of an `mcp:` entry. The user picks the provider then.
+            let hint = if e.origin.starts_with("mcp:") {
+                None
+            } else {
+                e.provider_hint.as_deref().and_then(ProviderArg::from_hint)
+            };
             let draft =
                 build_draft(&mut c, item, Some(e.label.clone()), hint, e.expires_at).await?;
             let name = draft.name.clone();
@@ -1718,12 +1727,48 @@ fn exec(ctx: &Ctx, a: ExecArgs) -> Code {
     let var = a
         .env
         .unwrap_or_else(|| item.slug.to_ascii_uppercase().replace('-', "_"));
-    let status = std::process::Command::new(&a.cmd[0])
+    let program = resolve_program(
+        &a.cmd[0],
+        std::env::var_os("PATH"),
+        std::env::var_os("PATHEXT"),
+    );
+    let status = std::process::Command::new(&program)
         .args(&a.cmd[1..])
         .env(&var, secret.expose())
         .status()
         .map_err(|e| cfg_err(format!("cannot start `{}`: {e}", a.cmd[0])))?;
     Ok(status.code().map_or(1, |c| u8::try_from(c).unwrap_or(1)))
+}
+
+/// Find `name` on `path` with the extensions in `pathext` (Windows only).
+///
+/// `Command` alone finds only `.exe` files on Windows, so `npm` (a `.cmd` shim) fails.
+/// A name with a directory part or an extension stays as it is.
+fn resolve_program(
+    name: &str,
+    path: Option<std::ffi::OsString>,
+    pathext: Option<std::ffi::OsString>,
+) -> PathBuf {
+    let p = PathBuf::from(name);
+    if !cfg!(windows) || p.components().count() != 1 || p.extension().is_some() {
+        return p;
+    }
+    let exts: Vec<String> = pathext
+        .map(|e| e.to_string_lossy().into_owned())
+        .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".into())
+        .split(';')
+        .filter(|e| !e.is_empty())
+        .map(str::to_owned)
+        .collect();
+    for dir in std::env::split_paths(&path.unwrap_or_default()) {
+        for ext in &exts {
+            let cand = dir.join(format!("{name}{ext}"));
+            if cand.is_file() {
+                return cand;
+            }
+        }
+    }
+    p
 }
 
 // ---------------------------------------------------------------- coffee
@@ -1843,7 +1888,12 @@ fn extension(ctx: &Ctx, cmd: ExtensionCmd) -> Code {
                 store::write_token(&ctx.paths.native_host_token(), &t)?;
             }
             let exe = std::env::current_exe()?;
-            let files = warden_native_host::register(&exe, &id)?;
+            // Edge starts the host without our environment, so a launcher carries WARDEN_HOME.
+            let target = match ctx.paths.home_override() {
+                Some(home) => native_host_launcher(&ctx.paths.config, &exe, home)?,
+                None => exe,
+            };
+            let files = warden_native_host::register(&target, &id)?;
             println!("\u{2713} native host registered for extension {id}");
             for f in files {
                 println!("  {}", f.display());
@@ -1856,6 +1906,44 @@ fn extension(ctx: &Ctx, cmd: ExtensionCmd) -> Code {
             Ok(0)
         }
     }
+}
+
+/// Write a launcher in `dir` that sets `WARDEN_HOME` to `home` and starts `exe`.
+fn native_host_launcher(dir: &Path, exe: &Path, home: &Path) -> Result<PathBuf> {
+    let (h, e) = (home.to_string_lossy(), exe.to_string_lossy());
+    let bad = |s: &str| {
+        s.chars().any(|c| {
+            matches!(
+                c,
+                '"' | '%' | '\'' | '\n' | '\r' | '!' | '^' | '&' | '|' | '<' | '>'
+            )
+        })
+    };
+    if bad(&h) || bad(&e) {
+        return Err(cfg_err(
+            "WARDEN_HOME or the program path has a character that a launcher cannot quote",
+        ));
+    }
+    std::fs::create_dir_all(dir)?;
+    let (name, text) = if cfg!(windows) {
+        (
+            "native-host.bat",
+            format!("@echo off\r\nset \"WARDEN_HOME={h}\"\r\n\"{e}\" %*\r\n"),
+        )
+    } else {
+        (
+            "native-host.sh",
+            format!("#!/bin/sh\nWARDEN_HOME='{h}' exec '{e}' \"$@\"\n"),
+        )
+    };
+    let path = dir.join(name);
+    std::fs::write(&path, text)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
+    }
+    Ok(path)
 }
 
 // ---------------------------------------------------------------- mcp, native host
@@ -2028,6 +2116,46 @@ mod tests {
         ] {
             assert!(help.contains(verb), "missing verb {verb}");
         }
+    }
+
+    #[test]
+    fn resolve_program_finds_cmd_shims() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("tool.cmd"), "@echo off").unwrap();
+        let path = Some(d.path().as_os_str().to_owned());
+        let ext = Some(".EXE;.CMD".into());
+        let got = resolve_program("tool", path.clone(), ext.clone());
+        if cfg!(windows) {
+            let want = d.path().join("tool.cmd");
+            assert!(
+                got.to_string_lossy()
+                    .eq_ignore_ascii_case(&want.to_string_lossy()),
+                "{got:?}"
+            );
+        } else {
+            assert_eq!(got, PathBuf::from("tool"));
+        }
+        assert_eq!(
+            resolve_program("missing", path.clone(), ext.clone()),
+            PathBuf::from("missing")
+        );
+        assert_eq!(
+            resolve_program("tool.exe", path, ext),
+            PathBuf::from("tool.exe")
+        );
+    }
+
+    #[test]
+    fn launcher_sets_home_and_refuses_bad_paths() {
+        let d = tempfile::tempdir().unwrap();
+        let exe = d.path().join("aivory-warden.exe");
+        let home = d.path().join("my home");
+        let p = native_host_launcher(d.path(), &exe, &home).unwrap();
+        let text = std::fs::read_to_string(&p).unwrap();
+        assert!(text.contains(&*home.to_string_lossy()), "{text}");
+        assert!(text.contains(&*exe.to_string_lossy()), "{text}");
+        let bad = d.path().join("50%");
+        assert!(native_host_launcher(d.path(), &exe, &bad).is_err());
     }
 
     #[test]

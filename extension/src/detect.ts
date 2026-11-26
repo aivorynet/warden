@@ -94,7 +94,15 @@ export function detectTokens(text: string, hostname: string): Candidate[] {
     for (const value of matches(t, re)) found.push({ value, provider, kind });
   };
 
-  add(new RegExp(`(?<!${NOT_TOKEN_CHAR})glpat-[A-Za-z0-9_-]{20,}(?!${NOT_TOKEN_CHAR})`, "g"), "gitlab", "GitLab access token");
+  // Newer GitLab tokens end in `.<version>.<checksum>`, for example `glpat-<payload>.01.<9 chars>`.
+  add(
+    new RegExp(
+      `(?<!${NOT_TOKEN_CHAR})glpat-[A-Za-z0-9_-]{20,}(?:\\.[0-9a-z]{2}\\.[0-9a-z]{6,12})?(?!${NOT_TOKEN_CHAR}|\\.[0-9a-z])`,
+      "g",
+    ),
+    "gitlab",
+    "GitLab access token",
+  );
   add(
     new RegExp(`(?<![A-Za-z0-9])sk-(?:admin-|proj-|svcacct-)?[A-Za-z0-9_-]{20,}(?!${NOT_TOKEN_CHAR})`, "g"),
     "openai",

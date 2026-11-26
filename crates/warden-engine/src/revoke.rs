@@ -25,7 +25,11 @@ impl Engine {
                 self.journal.remove(entry.id)?;
                 continue;
             };
-            let Some(old) = entry.old_provider_token_id.clone() else {
+            let Some(old) = entry
+                .old_provider_token_id
+                .clone()
+                .filter(|s| !s.is_empty())
+            else {
                 self.journal.remove(entry.id)?;
                 continue;
             };

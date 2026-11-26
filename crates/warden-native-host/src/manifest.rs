@@ -11,13 +11,18 @@ pub fn valid_extension_id(id: &str) -> bool {
     id.len() == 32 && id.bytes().all(|b| (b'a'..=b'p').contains(&b))
 }
 
-/// Build the host manifest. Only the extension with `extension_id` may connect.
-pub fn host_manifest(exe_path: &Path, extension_id: &str) -> Value {
+/// Build the host manifest. Only the extensions in `extension_ids` may connect. The same
+/// extension has one id per store (Chrome Web Store, Edge Add-ons) and one for a local build.
+pub fn host_manifest(exe_path: &Path, extension_ids: &[&str]) -> Value {
+    let origins: Vec<String> = extension_ids
+        .iter()
+        .map(|id| format!("chrome-extension://{id}/"))
+        .collect();
     json!({
         "name": HOST_NAME,
         "description": "Aivory Warden native messaging host",
         "path": exe_path.to_string_lossy(),
         "type": "stdio",
-        "allowed_origins": [format!("chrome-extension://{extension_id}/")],
+        "allowed_origins": origins,
     })
 }

@@ -133,10 +133,19 @@ async fn truncated_body_is_io_error() {
 #[test]
 fn manifest_allowed_origins_exact() {
     let id = "abcdefghijklmnopabcdefghijklmnop";
-    let m = host_manifest(Path::new("/x/host"), id);
+    let m = host_manifest(Path::new("/x/host"), &[id]);
     assert_eq!(
         m["allowed_origins"],
         json!([format!("chrome-extension://{id}/")])
+    );
+    let other = "ponmlkjihgfedcbaponmlkjihgfedcba";
+    let m = host_manifest(Path::new("/x/host"), &[id, other]);
+    assert_eq!(
+        m["allowed_origins"],
+        json!([
+            format!("chrome-extension://{id}/"),
+            format!("chrome-extension://{other}/")
+        ])
     );
     assert_eq!(m["name"], "net.aivory.warden");
     assert_eq!(m["type"], "stdio");
@@ -148,11 +157,13 @@ fn register_writes_and_removes() {
     let dirs = vec![dir.path().join("a"), dir.path().join("b")];
     let id = "abcdefghijklmnopabcdefghijklmnop";
     let exe = std::env::current_exe().unwrap();
-    let files = register_in(&dirs, &exe, id).unwrap();
+    let files = register_in(&dirs, &exe, &[id]).unwrap();
     assert_eq!(files.len(), 2);
     let v: Value = serde_json::from_slice(&std::fs::read(&files[0]).unwrap()).unwrap();
     assert_eq!(v["allowed_origins"][0], format!("chrome-extension://{id}/"));
-    assert!(register_in(&dirs, &exe, "BAD").is_err());
+    assert!(register_in(&dirs, &exe, &["BAD"]).is_err());
+    assert!(register_in(&dirs, &exe, &[id, "BAD"]).is_err());
+    assert!(register_in(&dirs, &exe, &[]).is_err());
     unregister_in(&dirs).unwrap();
     assert!(!files[0].exists());
     unregister_in(&dirs).unwrap();

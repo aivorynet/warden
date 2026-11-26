@@ -73,3 +73,49 @@ LAUNCH REVIEW (branch launch-review, 2026-11-25, not committed):
 
 NEXT STEP: merge launch-review after CI. Then the tray/desktop app test (accept from the app, quick unlock with
 Windows Hello) and mcp-setup on real configs.
+
+DESKTOP SETTINGS + LAUNCH PREP (branch desktop-settings from launch-review, 2026-11-26, NOT committed):
+- Settings > APP: background rotation (service status, Turn on/off), show tray icon, open Warden at login
+  (tauri-plugin-autostart, entry "Aivory Warden", passes --hidden), start in the tray, close to the tray.
+  Prefs file: <config>/desktop.json (apps/desktop/src-tauri/src/prefs.rs). Tray menu has "Settings".
+  Window starts hidden ("visible": false) and setup shows it unless --hidden + tray on + start_hidden.
+  Tray off: close quits the app (daemon keeps running); hidden start is ignored.
+- Verified in the real app (test WARDEN_HOME, deleted; test keychain entry deleted): settings render, tray toggle
+  saves, close hides with tray on, close quits with tray off, --hidden start stays hidden, tray off shows window.
+  NOT verified: "Open Warden at login" toggle (writes HKCU Run "Aivory Warden"), the tray icon pixels, "Turn off"
+  (it would remove Paul's real AivoryWarden Run entry -> target
+eleaseivory-warden.exe daemon).
+- Notifications (Paul: "every hour, too often, once a week at most"): new aivory-warden/src/notify.rs. Each note
+  (kind + token) shows at most once per 7 days; times persist in <data>/notes.json across restarts. Engine emits
+  Due only for manual tokens now (before: every due token, with the wrong "renew by hand" text). Rotation failures
+  no longer notify on every retry.
+- New icon (Paul: old "w" was poor; must show a token being renewed): key whose ring is a renewal arrow, black on
+  #22C55E, Hopover style. icons/icon.svg is the source; PNG/ICO/ICNS + extension icons regenerated (Edge headless + PIL).
+- Native host: allowed_origins takes several ids. EXTENSION_IDS in cli.rs; `awd extension install --id` repeatable.
+- Store: `cd extension && npm run pack:store` -> extension/store/save-to-warden-<ver>.zip (no "key", no tests).
+  Listing, permission reasons, data disclosure, reviewer steps: docs/store/chrome-web-store.md.
+  Privacy page draft: aivory-hugo/content/en/warden-privacy.md (not deployed, not committed).
+- Pricing + rollout proposal: aivory-sales-manager/research/warden-pricing-rollout-2026-11.md (Paul decides).
+- Gates green: workspace fmt, clippy -D warnings, 275 tests; cargo deny ok; extension npm test 16.
+
+NEXT STEP:
+- Paul: sign in to the Chrome Web Store dev console (Google asked to verify identity; $5 fee if not registered).
+  Then upload the zip as a draft (do not submit), read the item id, add it to EXTENSION_IDS, same for Edge Add-ons.
+- Before submit: GitHub repo public with a release, aivory.net/warden landing page, privacy page deployed,
+  a Warden release that contains the store ids, 1280x800 screenshots.
+- Paul decides on the pricing proposal (incl. removing the weekly coffee note).
+- RULE: start every test daemon with WARDEN_NO_NOTIFY=1 (and WARDEN_NO_KEYCHAIN=1). Test daemons on a fresh
+  WARDEN_HOME have their own notes.json, so the weekly limit does not stop their notes. The hourly notes Paul saw
+  are NOT confirmed: his real install has no vault; test daemons are the likely source. Ask Paul for the title.
+- Do NOT click with mouse automation on Paul's desktop: Paul works in parallel (a click hit his Settings window).
+  The tray icon pixels and "Open Warden at login" still need a check by Paul.
+
+CHROME WEB STORE (2026-11-26):
+- Publisher AIVory (AIVORY INC., verified trader account), contact aivee@aivory.net.
+- Item "Save to Warden" id cdmagnhjmcoacgpdhhpncannfgikcfob, status DRAFT (Paul saved it). Added to EXTENSION_IDS + test.
+- Store images: docs/store/assets (tokens.png, inbox.png 1280x800; tile.png 440x280; marquee.png 1400x560; HTML sources).
+  tile/marquee HTML need icon.svg + Anybody.ttf/InstrumentSans.ttf (apps/desktop/ui/fonts) next to them to re-render.
+- Icon: horizontal key + renewal arrow, Fable's fixes applied (stroke 26, open arrow gap, separate teeth, centred).
+- The Claude in Chrome plugin cannot script Web Store pages. Give Paul values to paste; no OS mouse input.
+- Before "Submit for review": deploy aivory.net/warden-privacy and aivory.net/warden, make github.com/aivorynet/warden
+  public, ship a Warden release that contains the store id. Then Edge Add-ons (free) with the same zip; add its id.

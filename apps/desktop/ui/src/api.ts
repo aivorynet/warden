@@ -1,5 +1,5 @@
 import { mockApp, mockCall } from "./mock.js";
-import type { AiClient, AppState, ConnectResult, Device, Kit, McpClient } from "./types.js";
+import type { AiClient, AppPrefs, AppState, ConnectResult, Device, Kit, McpClient } from "./types.js";
 
 type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
 type Listen = (event: string, cb: (e: { payload: unknown }) => void) => Promise<() => void>;
@@ -46,6 +46,15 @@ export async function quickUnlock(): Promise<void> {
   if (resp["type"] === "error") throw new ApiError(String(resp["code"]), String(resp["message"]));
 }
 export const startService =(): Promise<void> => (isTauri ? invoke("start_service") : Promise.resolve());
+/** Remove the background service. It also stops the daemon. */
+export const removeService = (): Promise<void> => (isTauri ? invoke("remove_service") : mockCall({ type: "remove_service" }).then(() => undefined));
+/** The App section of Settings: tray, login entries and close button. */
+export const appPrefs = (): Promise<AppPrefs> => (isTauri ? invoke("app_prefs") : mockCall({ type: "app_prefs" }).then((r) => r["prefs"] as AppPrefs));
+/** Save the app preferences. The tray icon changes at once. */
+export const setAppPrefs = (prefs: Pick<AppPrefs, "show_tray" | "start_hidden" | "close_to_tray">): Promise<void> =>
+  isTauri ? invoke("set_app_prefs", { prefs }) : mockCall({ type: "set_app_prefs", prefs }).then(() => undefined);
+/** Add or remove the login entry of the desktop app. */
+export const setOpenAtLogin = (on: boolean): Promise<void> => (isTauri ? invoke("set_open_at_login", { on }) : mockCall({ type: "set_open_at_login", on }).then(() => undefined));
 /** Paired clients that are not Full (CLI and desktop manage their own tokens). */
 export const listMcpClients = async (): Promise<McpClient[]> =>
   (await call<{ clients: McpClient[] }>({ type: "list_clients" })).clients.filter((c) => !c.capabilities.includes("full"));

@@ -40,6 +40,7 @@ function seed(): Item[] {
 }
 
 let items = seed();
+let prefs = { show_tray: true, start_hidden: true, close_to_tray: true, open_at_login: false, service_installed: true };
 let settings: Settings = { default_interval: 30 * DAY, coffee_reminder: true, keychain_cache: true, quick_unlock: false };
 let pledged = false;
 let paidYear: number | null = null;
@@ -127,6 +128,10 @@ export async function mockCall(req: Record<string, any>): Promise<Record<string,
     case "inbox_accept": inbox = inbox.filter((e) => e.id !== req["id"]); return { type: "added", item: uid(200) };
     case "inbox_reject": inbox = inbox.filter((e) => e.id !== req["id"]); return { type: "ok" };
     case "pair": return { type: "paired", capabilities: req["capabilities"], token: "aivw_SAMPLE_TOKEN_SHOWN_ONCE_0000000000000000" };
+    case "app_prefs": return { type: "ok", prefs };
+    case "set_app_prefs": prefs = { ...prefs, ...req["prefs"] }; return { type: "ok" };
+    case "set_open_at_login": prefs.open_at_login = req["on"]; return { type: "ok" };
+    case "remove_service": prefs.service_installed = false; return { type: "ok" };
     case "get_settings": return { type: "settings", ...settings };
     case "set_settings": settings = req["settings"]; return { type: "ok" };
     case "coffee_status": return { type: "coffee", ...coffee() };

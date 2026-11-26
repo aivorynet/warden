@@ -1,12 +1,12 @@
 /** Add wizard and settings. */
 import { h, replace } from "./dom.js";
-import { call, isTauri, listDevices, quickUnlockInfo, listMcpClients, openUrl, unpairMcpClient } from "./api.js";
+import { appPrefs, call, isTauri, listDevices, removeService, setAppPrefs, setOpenAtLogin, startService, quickUnlockInfo, listMcpClients, openUrl, unpairMcpClient } from "./api.js";
 import { placePicker, type PlaceType } from "./place.js";
 import { S, PROVIDERS, btn, cta, errText, eyebrow, field, fmtDate, providerLabel, simpleBar, slugify, toast, topbar } from "./view.js";
 import { buyCoffee } from "./coffee.js";
 import { aiToolsList } from "./screens_connect.js";
 import { opts, sinkView } from "./screens_tokens.js";
-import type { Coffee, Device, McpClient, Settings, Sink, Summary } from "./types.js";
+import type { AppPrefs, Coffee, Device, McpClient, Settings, Sink, Summary } from "./types.js";
 import { DAY } from "./types.js";
 
 const STEPS = ["THE PROVIDER", "THE TOKEN", "THE PLACES", "THE POLICY"];
@@ -153,6 +153,68 @@ function row(title: string, sub: string | null, ...right: (Node | string)[]): HT
   return h("div", { class: "row set" }, h("span", { class: "grow" }, h("span", { class: "a" }, title), sub ? h("span", { class: "b" }, sub) : null), ...right);
 }
 
+function chk(on: boolean, change: (v: boolean) => void, disabled = false): HTMLInputElement {
+  return h("input", { type: "checkbox", class: "chk", checked: on, disabled, onchange: (e: Event) => change((e.target as HTMLInputElement).checked) });
+}
+
+/** Settings > App: tray icon, login entries, close button and the background service. */
+function appRows(p: AppPrefs, reload: () => void): HTMLElement[] {
+  const noTray = "Needs the tray icon.";
+  const hiddenSub = h("span", { class: "b" });
+  const closeSub = h("span", { class: "b" });
+  const save = async (patch: Partial<AppPrefs>, box: HTMLInputElement) => {
+    const next = { show_tray: p.show_tray, start_hidden: p.start_hidden, close_to_tray: p.close_to_tray, ...patch };
+    try {
+      await setAppPrefs(next);
+      Object.assign(p, next);
+    } catch (e) {
+      box.checked = !box.checked;
+      toast("bad", "NOT SAVED", errText(e));
+    }
+    sync();
+  };
+  const hidden = chk(p.start_hidden, (v) => void save({ start_hidden: v }, hidden));
+  const close = chk(p.close_to_tray, (v) => void save({ close_to_tray: v }, close));
+  const tray = chk(p.show_tray, (v) => void save({ show_tray: v }, tray));
+  const sync = () => {
+    hidden.disabled = !p.show_tray;
+    close.disabled = !p.show_tray;
+    hiddenSub.textContent = p.show_tray ? "At login, the window stays closed. Click the tray icon to open it." : noTray;
+    closeSub.textContent = p.show_tray ? "The close button hides the window. Use the tray menu to quit." : noTray;
+  };
+  sync();
+  const login = chk(p.open_at_login, async (on) => {
+    try {
+      await setOpenAtLogin(on);
+    } catch (e) {
+      login.checked = !on;
+      toast("bad", "NOT SAVED", errText(e));
+    }
+  });
+  const service = async () => {
+    try {
+      if (p.service_installed) {
+        if (!window.confirm("Turn off background rotation? Warden stops the service now, and tokens do not rotate until you turn it on again.")) return;
+        await removeService();
+        await S.refresh();
+      } else {
+        await startService();
+      }
+    } catch (e) {
+      toast("bad", "NOT CHANGED", errText(e));
+    }
+    reload();
+  };
+  const sub = (title: string, b: HTMLElement, right: Node) => h("div", { class: "row set" }, h("span", { class: "grow" }, h("span", { class: "a" }, title), b), right);
+  return [
+    row("Background rotation", p.service_installed ? "On. The service starts at login and rotates tokens when this window is closed." : "Off. Tokens rotate only while a daemon runs.", btn(p.service_installed ? "Turn off" : "Turn on", () => void service())),
+    row("Show the tray icon", "Off: the close button quits the app. Rotation keeps running.", tray),
+    row("Open Warden at login", "Starts the app when you sign in to this computer.", login),
+    sub("Start in the tray", hiddenSub, hidden),
+    sub("Close to the tray", closeSub, close),
+  ];
+}
+
 export async function settings(root: HTMLElement): Promise<void> {
   const cur = (await call({ type: "get_settings" })) as unknown as Settings;
   const coffee = (await call({ type: "coffee_status" })) as unknown as Coffee;
@@ -171,6 +233,8 @@ export async function settings(root: HTMLElement): Promise<void> {
     }
   };
   const quick = await quickUnlockInfo().catch(() => ({ available: false, label: "" }));
+  const app = await appPrefs().catch(() => null);
+  const appSection = app ? appRows(app, () => void settings(root)) : [h("div", { class: "empty" }, "The app settings are not available.")];
   const lockForget = async () => {
     try {
       await call({ type: "lock_forget" });
@@ -203,6 +267,8 @@ export async function settings(root: HTMLElement): Promise<void> {
         { class: "col" },
         h("h1", { class: "disp" }, "Settings"),
         h("div", { class: "bar" }),
+        h("span", { class: "label" }, "APP"),
+        h("div", { class: "rows" }, ...appSection),
         h("span", { class: "label" }, "ROTATION"),
         h("div", { class: "rows" }, row("Default interval", "For each token without its own interval.", iv)),
         h("span", { class: "label" }, "SECURITY"),

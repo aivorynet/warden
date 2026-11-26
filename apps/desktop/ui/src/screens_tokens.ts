@@ -288,7 +288,7 @@ export async function inbox(root: HTMLElement): Promise<void> {
         { class: "col" },
         eyebrow(`INBOX · ${entries.length} WAITING`),
         h("h1", { class: "disp" }, "Inbox"),
-        h("p", { class: "lead" }, "Tokens that the Edge extension captured. A page cannot add a token by itself. You confirm each one here."),
+        h("p", { class: "lead" }, "Tokens that the browser extension or an AI tool captured. A page cannot add a token by itself. You confirm each one here."),
         h("div", { class: "bar" }),
         entries.length === 0 ? h("p", { class: "empty" }, "Nothing waits. Captured tokens show up here.") : h("div", { class: "rows" }, ...entries.map((e) => inboxRow(e, reload))),
       ),

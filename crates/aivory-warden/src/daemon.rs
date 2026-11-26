@@ -1,5 +1,6 @@
 //! The background daemon: vault, engine, scheduler and the IPC handler.
 
+use crate::notify::{KEY_COFFEE, Notifier, event_key};
 use crate::paths::Paths;
 use crate::store::{self, InboxStore, NewInbox, PairingFile};
 use async_trait::async_trait;
@@ -98,7 +99,7 @@ pub struct Daemon {
     engine_cfg: EngineConfig,
     keychain_enabled: bool,
     key_file: Option<KeyFileCache>,
-    notify_enabled: bool,
+    notifier: Arc<Notifier>,
     coffee_lock: Arc<Mutex<()>>,
 }
 
@@ -170,6 +171,10 @@ impl Daemon {
             engine_cfg.tick = Duration::from_millis(ms);
         }
         let flag = |k: &str| std::env::var_os(k).is_some_and(|v| !v.is_empty());
+        let notifier = Arc::new(Notifier::new(
+            !flag("WARDEN_NO_NOTIFY"),
+            paths.data.join("notes.json"),
+        ));
         Ok(Self {
             inbox: InboxStore::new(paths.inbox_file()),
             paths,
@@ -180,7 +185,7 @@ impl Daemon {
             engine_cfg,
             keychain_enabled: !flag("WARDEN_NO_KEYCHAIN"),
             key_file: None,
-            notify_enabled: !flag("WARDEN_NO_NOTIFY"),
+            notifier,
             coffee_lock: Arc::new(Mutex::new(())),
         })
     }
@@ -387,7 +392,7 @@ impl Daemon {
 
     fn spawn_event_pump(&self, engine: &Engine) {
         let mut rx = engine.subscribe();
-        let enabled = self.notify_enabled;
+        let notifier = Arc::clone(&self.notifier);
         let paths = self.paths.clone();
         let lk = Arc::clone(&self.coffee_lock);
         let clock = Arc::clone(&self.clock);
@@ -396,7 +401,7 @@ impl Daemon {
                 match rx.recv().await {
                     Ok(ev) => {
                         if let Some((title, body)) = describe_event(&ev) {
-                            notify(enabled, title, body).await;
+                            notifier.show(&event_key(&ev), title, body).await;
                         }
                         if matches!(ev, EngineEvent::Rotated { complete: true, .. }) {
                             let reminder = store::load_settings(&paths)
@@ -412,7 +417,7 @@ impl Daemon {
                                 )
                             });
                             if let Some(n) = note {
-                                notify(enabled, n.title, n.body).await;
+                                notifier.show("coffee-first", n.title, n.body).await;
                             }
                         }
                     }
@@ -1013,7 +1018,7 @@ impl Daemon {
             )
         });
         if let Some(n) = note {
-            notify(self.notify_enabled, n.title, n.body).await;
+            self.notifier.show(KEY_COFFEE, n.title, n.body).await;
         }
     }
 
@@ -1304,25 +1309,6 @@ pub fn describe_event(ev: &EngineEvent) -> Option<(String, String)> {
             "Warden does not rotate this token. Renew it by hand.".into(),
         )),
         _ => None,
-    }
-}
-
-async fn notify(enabled: bool, title: String, body: String) {
-    if !enabled {
-        tracing::info!("notification: {title}");
-        return;
-    }
-    let r = tokio::task::spawn_blocking(move || {
-        notify_rust::Notification::new()
-            .appname("Aivory Warden")
-            .summary(&title)
-            .body(&body)
-            .show()
-            .map(|_| ())
-    })
-    .await;
-    if let Ok(Err(e)) = r {
-        tracing::warn!("desktop notification failed: {e}");
     }
 }
 

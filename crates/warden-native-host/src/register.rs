@@ -42,15 +42,15 @@ fn file_name() -> String {
 pub fn register_in(
     dirs: &[PathBuf],
     exe_path: &Path,
-    extension_id: &str,
+    extension_ids: &[&str],
 ) -> io::Result<Vec<PathBuf>> {
-    if !valid_extension_id(extension_id) {
+    if extension_ids.is_empty() || !extension_ids.iter().all(|id| valid_extension_id(id)) {
         return Err(bad("extension id must be 32 letters from a to p"));
     }
     if !exe_path.is_absolute() {
         return Err(bad("exe path must be absolute"));
     }
-    let text = serde_json::to_string_pretty(&host_manifest(exe_path, extension_id))
+    let text = serde_json::to_string_pretty(&host_manifest(exe_path, extension_ids))
         .map_err(io::Error::other)?;
     let mut files = Vec::new();
     for dir in dirs {
@@ -83,8 +83,8 @@ const REG_KEYS: [&str; 2] = [
 /// Register the host for Edge and Chrome for the current user.
 ///
 /// `exe_path` must start the host with no extra arguments. Return the manifest files.
-pub fn register(exe_path: &Path, extension_id: &str) -> io::Result<Vec<PathBuf>> {
-    let files = register_in(&manifest_dirs()?, exe_path, extension_id)?;
+pub fn register(exe_path: &Path, extension_ids: &[&str]) -> io::Result<Vec<PathBuf>> {
+    let files = register_in(&manifest_dirs()?, exe_path, extension_ids)?;
     #[cfg(windows)]
     for key in REG_KEYS {
         let out = std::process::Command::new("reg")

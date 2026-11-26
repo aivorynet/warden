@@ -39,7 +39,7 @@ To make the Chrome Web Store or Edge Add-ons package, use this key.
 
    With `WARDEN_HOME` set, the command writes a launcher that carries `WARDEN_HOME` to the host.
 
-   Or call `warden_native_host::register(exe_path, "ofafkpmfikeikdkldpkgmibfbphkmgai")` from Rust.
+   Or call `warden_native_host::register(exe_path, &["ofafkpmfikeikdkldpkgmibfbphkmgai"])` from Rust.
 6. Check the registration on Windows:
    `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\net.aivory.warden` points to the manifest in
    `%LOCALAPPDATA%\Aivory\Warden\native-host\net.aivory.warden.json`.

@@ -213,6 +213,35 @@ impl Daemon {
         }
         Err("the service started, but the daemon does not answer yet".into())
     }
+
+    /// Return true when the background service is installed (it starts at login).
+    pub async fn service_installed(&self) -> Result<bool, String> {
+        let out = cli_command()
+            .args(["service", "status"])
+            .output()
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(out.status.success())
+    }
+
+    /// Remove the background service. This also stops the running daemon.
+    pub async fn remove_service(&self) -> Result<(), String> {
+        let out = cli_command()
+            .args(["service", "uninstall"])
+            .output()
+            .await
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            *self.client.lock().await = None;
+            return Ok(());
+        }
+        let err = String::from_utf8_lossy(&out.stderr);
+        Err(err
+            .lines()
+            .last()
+            .unwrap_or("service uninstall failed")
+            .to_owned())
+    }
 }
 
 fn cli_binary() -> PathBuf {

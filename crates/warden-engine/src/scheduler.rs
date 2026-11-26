@@ -140,14 +140,14 @@ impl Engine {
         self.notify_expiring(now);
         for id in self.due_items(now) {
             let Ok(item) = self.item(&id) else { continue };
-            let first = lock(&self.state).due_notified.insert(id);
-            if first {
-                self.emit(EngineEvent::Due {
-                    item_id: id,
-                    name: item.name.clone(),
-                });
-            }
             if item.provider.kind == ProviderKind::Manual {
+                // Only a manual token needs the user. Warden rotates every other one itself.
+                if lock(&self.state).due_notified.insert(id) {
+                    self.emit(EngineEvent::Due {
+                        item_id: id,
+                        name: item.name.clone(),
+                    });
+                }
                 continue;
             }
             match self.rotate(id).await {

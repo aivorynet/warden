@@ -4,15 +4,79 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod daemon;
+mod prefs;
 mod tray;
 
 use daemon::Daemon;
+use prefs::Prefs;
 use serde::Serialize;
 use serde_json::Value;
-use std::sync::Arc;
-use tauri::State;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Manager, State};
+use tauri_plugin_autostart::ManagerExt;
 
 type Shared<'a> = State<'a, Arc<Daemon>>;
+
+/// The app preferences and the file that holds them.
+struct PrefStore {
+    path: PathBuf,
+    prefs: Mutex<Prefs>,
+}
+
+impl PrefStore {
+    fn get(&self) -> Prefs {
+        self.prefs.lock().map(|p| p.clone()).unwrap_or_default()
+    }
+}
+
+/// The App section of Settings: the preferences plus the two login entries, read from the OS.
+#[derive(Debug, Serialize)]
+struct AppPrefs {
+    #[serde(flatten)]
+    prefs: Prefs,
+    /// The OS opens the desktop app at login.
+    open_at_login: bool,
+    /// The background service (rotation) starts at login.
+    service_installed: bool,
+}
+
+#[tauri::command]
+async fn app_prefs(
+    app: AppHandle,
+    store: State<'_, PrefStore>,
+    d: Shared<'_>,
+) -> Result<AppPrefs, String> {
+    Ok(AppPrefs {
+        prefs: store.get(),
+        open_at_login: app.autolaunch().is_enabled().unwrap_or(false),
+        service_installed: d.service_installed().await.unwrap_or(false),
+    })
+}
+
+/// Save the preferences and apply them at once (tray icon visible or not).
+#[tauri::command]
+fn set_app_prefs(app: AppHandle, store: State<'_, PrefStore>, prefs: Prefs) -> Result<(), String> {
+    prefs.save(&store.path)?;
+    tray::set_visible(&app, prefs.show_tray);
+    if let Ok(mut p) = store.prefs.lock() {
+        *p = prefs;
+    }
+    Ok(())
+}
+
+/// Add or remove the login entry of the desktop app. It starts the app with `--hidden`.
+#[tauri::command]
+fn set_open_at_login(app: AppHandle, on: bool) -> Result<(), String> {
+    let l = app.autolaunch();
+    if on { l.enable() } else { l.disable() }.map_err(|e| e.to_string())
+}
+
+/// Remove the background service. Rotation stops until the service runs again.
+#[tauri::command]
+async fn remove_service(d: Shared<'_>) -> Result<(), String> {
+    d.remove_service().await
+}
 
 /// What the UI needs to choose its first screen.
 #[derive(Debug, Serialize)]
@@ -183,11 +247,29 @@ fn main() {
             std::process::exit(1);
         }
     };
+    let store = match aivory_warden::Paths::discover() {
+        Ok(p) => {
+            let path = prefs::path(&p.config);
+            PrefStore {
+                prefs: Mutex::new(Prefs::load(&path)),
+                path,
+            }
+        }
+        Err(e) => {
+            eprintln!("aivory-warden-desktop: {e}");
+            std::process::exit(1);
+        }
+    };
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             tray::show_main(app);
         }))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![prefs::HIDDEN_FLAG]),
+        ))
         .manage(daemon)
+        .manage(store)
         .invoke_handler(tauri::generate_handler![
             app_state,
             daemon_call,
@@ -196,6 +278,10 @@ fn main() {
             sign_pledge,
             init_vault,
             start_service,
+            remove_service,
+            app_prefs,
+            set_app_prefs,
+            set_open_at_login,
             open_url,
             mcp_setup_list,
             mcp_setup_connect,
@@ -203,12 +289,24 @@ fn main() {
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+                let app = window.app_handle();
+                if app.state::<PrefStore>().get().hide_on_close() {
+                    api.prevent_close();
+                    let _ = window.hide();
+                } else {
+                    // Without a tray the app quits. The daemon keeps running.
+                    app.exit(0);
+                }
             }
         })
         .setup(|app| {
+            let p = app.state::<PrefStore>().get();
             tray::build(app.handle())?;
+            tray::set_visible(app.handle(), p.show_tray);
+            let args: Vec<String> = std::env::args().collect();
+            if !p.start_in_tray(&args) {
+                tray::show_main(app.handle());
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -704,7 +704,7 @@ async fn jitter_stays_within_ten_percent() {
 }
 
 #[tokio::test]
-async fn tick_rotates_due_items_and_emits_due() {
+async fn tick_rotates_due_items_without_a_due_note() {
     let e = Env::new();
     let id = e.admin("a", false, 1, policy(0));
     let eng = e.engine();
@@ -713,7 +713,10 @@ async fn tick_rotates_due_items_and_emits_due() {
     e.clock.advance(CDuration::days(31));
     let t = eng.tick().await.unwrap();
     assert_eq!(t.rotated, [id]);
-    assert!(matches!(rx.try_recv().unwrap(), EngineEvent::Due { .. }));
+    // Due is only for manual tokens. This one rotates by itself.
+    while let Ok(ev) = rx.try_recv() {
+        assert!(!matches!(ev, EngineEvent::Due { .. }), "unexpected {ev:?}");
+    }
     e.assert_sound(id);
     // Rotated now: next tick has nothing (queued revoke runs, grace 0).
     let t2 = eng.tick().await.unwrap();

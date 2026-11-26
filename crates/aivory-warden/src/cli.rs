@@ -418,16 +418,22 @@ enum ServiceCmd {
 enum ExtensionCmd {
     /// Register the native messaging host for the extension.
     Install {
-        /// Extension id (32 letters from a to p). Default: the id of the published extension.
-        #[arg(long, default_value = EXTENSION_ID)]
-        id: String,
+        /// Extension id (32 letters from a to p). Repeat it for more ids.
+        /// Default: the ids of the published extension and of the local build.
+        #[arg(long = "id")]
+        ids: Vec<String>,
     },
     /// Remove the registration.
     Uninstall,
 }
 
-/// Id of the published extension. The public key in `extension/manifest.json` fixes it.
-const EXTENSION_ID: &str = "ofafkpmfikeikdkldpkgmibfbphkmgai";
+/// Ids of the "Save to Warden" extension: the local build (the public key in
+/// `extension/manifest.json` fixes it) and the Chrome Web Store item. Add the Edge Add-ons id
+/// here when the store assigns it.
+const EXTENSION_IDS: &[&str] = &[
+    "ofafkpmfikeikdkldpkgmibfbphkmgai",
+    "cdmagnhjmcoacgpdhhpncannfgikcfob",
+];
 
 struct Ctx {
     paths: Paths,
@@ -1877,8 +1883,16 @@ fn service_cmd(cmd: ServiceCmd) -> Code {
 
 fn extension(ctx: &Ctx, cmd: ExtensionCmd) -> Code {
     match cmd {
-        ExtensionCmd::Install { id } => {
-            if !warden_native_host::valid_extension_id(&id) {
+        ExtensionCmd::Install { ids } => {
+            let ids: Vec<&str> = if ids.is_empty() {
+                EXTENSION_IDS.to_vec()
+            } else {
+                ids.iter().map(String::as_str).collect()
+            };
+            if !ids
+                .iter()
+                .all(|id| warden_native_host::valid_extension_id(id))
+            {
                 return Err(cfg_err("the extension id must have 32 letters from a to p"));
             }
             std::fs::create_dir_all(&ctx.paths.config)?;
@@ -1893,8 +1907,11 @@ fn extension(ctx: &Ctx, cmd: ExtensionCmd) -> Code {
                 Some(home) => native_host_launcher(&ctx.paths.config, &exe, home)?,
                 None => exe,
             };
-            let files = warden_native_host::register(&target, &id)?;
-            println!("\u{2713} native host registered for extension {id}");
+            let files = warden_native_host::register(&target, &ids)?;
+            println!(
+                "\u{2713} native host registered for extension {}",
+                ids.join(", ")
+            );
             for f in files {
                 println!("  {}", f.display());
             }
@@ -2080,6 +2097,19 @@ async fn native_host(paths: &Paths) -> Code {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    #[test]
+    fn known_extension_ids_are_valid_and_unique() {
+        assert!(
+            EXTENSION_IDS
+                .iter()
+                .all(|id| warden_native_host::valid_extension_id(id))
+        );
+        let mut ids = EXTENSION_IDS.to_vec();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), EXTENSION_IDS.len());
+    }
 
     #[test]
     fn cli_definition_is_valid() {

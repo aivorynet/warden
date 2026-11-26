@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-static.mjs",
-    "test": "npm run build && node --test \"dist/**/*.test.js\""
+    "test": "npm run build && node --test \"dist/**/*.test.js\"",
+    "pack:store": "npm run build && node scripts/pack-store.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.300",

@@ -1,4 +1,4 @@
-//! The tray icon: Open, Rotate due tokens, Inbox, Lock now, Quit app.
+//! The tray icon: Open, Rotate due tokens, Inbox, Settings, Lock now, Quit app.
 
 use crate::daemon::Daemon;
 use std::sync::Arc;
@@ -16,11 +16,19 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
+/// Show or hide the tray icon.
+pub fn set_visible(app: &AppHandle, on: bool) {
+    if let Some(t) = app.tray_by_id("main") {
+        let _ = t.set_visible(on);
+    }
+}
+
 /// Build the tray and start the refresh task.
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Warden", true, None::<&str>)?;
     let rotate = MenuItem::with_id(app, "rotate", "Rotate due tokens", true, None::<&str>)?;
     let inbox = MenuItem::with_id(app, "inbox", "Inbox", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
     let lock = MenuItem::with_id(app, "lock", "Lock now", true, None::<&str>)?;
     let quit = MenuItem::with_id(
         app,
@@ -30,7 +38,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&open, &rotate, &inbox, &lock, &sep, &quit])?;
+    let menu = Menu::with_items(
+        app,
+        &[&open, &rotate, &inbox, &settings, &lock, &sep, &quit],
+    )?;
     let mut builder = TrayIconBuilder::with_id("main")
         .tooltip("Aivory Warden")
         .menu(&menu)
@@ -50,6 +61,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             "inbox" => {
                 show_main(app);
                 let _ = app.emit("navigate", "inbox");
+            }
+            "settings" => {
+                show_main(app);
+                let _ = app.emit("navigate", "settings");
             }
             "rotate" => {
                 let app = app.clone();

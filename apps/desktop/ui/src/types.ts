@@ -23,6 +23,8 @@ export type Status = { version: string; locked: boolean; device_id: string; item
 export type InboxEntry = { id: string; origin: string; label: string; captured_at: string; provider_hint?: string | null; expires_at?: string | null };
 export type Coffee = { paid_year: number | null; reminder_due: boolean; link: string; pledged: boolean; ticket: string; price_label: string };
 export type Audit = { at: string; device: string; item: string | null; action: string; detail: string };
+/** Preferences of the desktop app on this computer, and the two login entries. */
+export type AppPrefs = { show_tray: boolean; start_hidden: boolean; close_to_tray: boolean; open_at_login: boolean; service_installed: boolean };
 export type Settings = { default_interval: number; coffee_reminder: boolean; keychain_cache: boolean; quick_unlock: boolean };
 export type McpClient = { id: string; name: string; capabilities: string[]; paired_at: string };
 export type AiClient = { id: string; name: string; installed: boolean; connected: boolean; config: string };

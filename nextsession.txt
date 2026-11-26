@@ -129,3 +129,4 @@ PUBLISHED (2026-11-26, Paul approved):
 - Chrome Web Store item cdmagnhjmcoacgpdhhpncannfgikcfob: draft saved by Paul, NOT submitted.
 NEXT: first release tag (unsigned is possible; signing secrets optional), then Paul clicks "Submit for review"
 (the plugin cannot click on Web Store pages). Then Edge Add-ons, MCP directories, launch posts (see the pricing doc).
+- 2026-11-26: aivory.net/warden hero = direction C ("Set it once. It renews forever.", token timeline), from canvas https://claude.ai/artifact/DSEFoRo1CEAFgJLEGRrWX6; aivory-hugo c1cf30f on production. GitHub CI green on all 3 OS (run 45822656071).

@@ -9,6 +9,8 @@ export const S = {
   kit: null as Kit | null,
   /** The pledge was signed on the first-run screen, before the vault exists. `init --pledge` records it. */
   firstRunPledged: false,
+  /** The background service start after the vault creation. It runs while the user reads the Emergency Kit. */
+  service: null as Promise<void> | null,
   inbox: 0,
   go: (_route: string): void => {},
   refresh: async (): Promise<void> => {},

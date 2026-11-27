@@ -436,11 +436,12 @@ enum ExtensionCmd {
 }
 
 /// Ids of the "Save to Warden" extension: the local build (the public key in
-/// `extension/manifest.json` fixes it) and the Chrome Web Store item. Add the Edge Add-ons id
-/// here when the store assigns it.
+/// `extension/manifest.json` fixes it), the Chrome Web Store item and the Edge Add-ons item
+/// (CRX ID from the Partner Center extension overview).
 const EXTENSION_IDS: &[&str] = &[
     "ofafkpmfikeikdkldpkgmibfbphkmgai",
     "cdmagnhjmcoacgpdhhpncannfgikcfob",
+    "ioimbnknaooclmljbkkejjmmmondinno",
 ];
 
 struct Ctx {

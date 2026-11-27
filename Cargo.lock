@@ -77,7 +77,7 @@ dependencies = [
 
 [[package]]
 name = "aivory-warden"
-version = "2026.11.1"
+version = "2026.11.2"
 dependencies = [
  "async-trait",
  "blake3",
@@ -116,7 +116,7 @@ dependencies = [
 
 [[package]]
 name = "aivory-warden-desktop"
-version = "2026.11.1"
+version = "2026.11.2"
 dependencies = [
  "aivory-warden",
  "chrono",
@@ -6940,7 +6940,7 @@ dependencies = [
 
 [[package]]
 name = "warden-coffee"
-version = "2026.11.1"
+version = "2026.11.2"
 dependencies = [
  "chrono",
  "serde",
@@ -6952,7 +6952,7 @@ dependencies = [
 
 [[package]]
 name = "warden-core"
-version = "2026.11.1"
+version = "2026.11.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6969,7 +6969,7 @@ dependencies = [
 
 [[package]]
 name = "warden-engine"
-version = "2026.11.1"
+version = "2026.11.2"
 dependencies = [
  "async-trait",
  "chacha20poly1305",
@@ -6989,7 +6989,7 @@ dependencies = [
 
 [[package]]
 name = "warden-ipc"
-version = "2026.11.1"
+version = "2026.11.2"
 dependencies = [
  "async-trait",
  "rustix",
@@ -7004,7 +7004,7 @@ dependencies = [
 
 [[package]]
 name = "warden-mcp"
-version = "2026.11.1"
+version = "2026.11.2"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -7026,7 +7026,7 @@ dependencies = [
 
 [[package]]
 name = "warden-native-host"
-version = "2026.11.1"
+version = "2026.11.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7040,7 +7040,7 @@ dependencies = [
 
 [[package]]
 name = "warden-providers"
-version = "2026.11.1"
+version = "2026.11.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7058,7 +7058,7 @@ dependencies = [
 
 [[package]]
 name = "warden-sinks"
-version = "2026.11.1"
+version = "2026.11.2"
 dependencies = [
  "async-trait",
  "regex",
@@ -7077,7 +7077,7 @@ dependencies = [
 
 [[package]]
 name = "warden-vault"
-version = "2026.11.1"
+version = "2026.11.2"
 dependencies = [
  "argon2 0.5.3",
  "blake3",
@@ -7099,7 +7099,7 @@ dependencies = [
 
 [[package]]
 name = "warden-verify"
-version = "2026.11.1"
+version = "2026.11.2"
 dependencies = [
  "block2",
  "objc2",

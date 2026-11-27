@@ -26,7 +26,13 @@ function report(results: { id: string; ok: boolean; message: string }[], names: 
 /** One-time screen after the Emergency Kit: a checkbox for each installed tool. */
 export async function connect(root: HTMLElement): Promise<void> {
   const clients = await mcpSetupList().catch(() => [] as AiClient[]);
-  const finish = () => S.go("tokens");
+  const finish = async () => {
+    // Wait for the service start from the vault creation, then read the new state.
+    await S.service;
+    S.service = null;
+    await S.refresh();
+    S.go("tokens");
+  };
   const picks = new Map<string, HTMLInputElement>();
   const rows = clients.map((c) => {
     if (!c.installed) return row(c, h("span", { class: "mono small steel" }, "NOT FOUND"));

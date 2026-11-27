@@ -239,6 +239,11 @@ async fn start_service(d: Shared<'_>) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn run_daemon(d: Shared<'_>) -> Result<(), String> {
+    d.run_daemon().await
+}
+
+#[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
     if !url.starts_with("https://") {
         return Err("only https links open".into());
@@ -341,6 +346,7 @@ fn main() {
             sign_pledge,
             init_vault,
             start_service,
+            run_daemon,
             remove_service,
             app_prefs,
             set_app_prefs,
@@ -370,6 +376,14 @@ fn main() {
             if !p.start_in_tray(&args) {
                 tray::show_main(app.handle());
             }
+            // The browser extension works without a terminal step: register its native host
+            // on every start. This also fixes the host path after an update.
+            let d = app.state::<Arc<Daemon>>().inner().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = d.register_extension().await {
+                    eprintln!("aivory-warden-desktop: browser extension not registered: {e}");
+                }
+            });
             Ok(())
         })
         .run(tauri::generate_context!())

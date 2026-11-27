@@ -180,6 +180,9 @@ export function init(root: HTMLElement): void {
             try {
               S.kit = await initVault(pw.value, device.value);
               pw.value = again.value = "";
+              // Start background rotation now, so the user never sees "Warden sleeps" after setup.
+              // Settings > App turns it off.
+              S.service = startService().catch(() => {});
               await S.refresh();
               S.go("kit");
             } catch (ex) {

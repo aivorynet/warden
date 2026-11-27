@@ -1,4 +1,4 @@
-import { appState, isTauri, listen, call } from "./api.js";
+import { appState, isTauri, listen, call, runDaemon } from "./api.js";
 import { S, errText, toast } from "./view.js";
 import * as start from "./screens_start.js";
 import * as tok from "./screens_tokens.js";
@@ -46,11 +46,19 @@ function gate(r: string): string | null {
 }
 
 let seq = 0;
+let autoStarted = false;
 async function render(): Promise<void> {
   const mine = ++seq;
   let r = route() || "tokens";
   try {
     if (!S.app) await S.refresh();
+    // The user never starts the daemon by hand: when a vault exists and the daemon is down,
+    // start it once (no login entry, so the Settings choice stays). "down" shows only on failure.
+    if (isTauri && S.app?.vault_exists && !S.app.daemon_up && !autoStarted) {
+      autoStarted = true;
+      await (S.service ?? runDaemon()).catch(() => {});
+      await S.refresh();
+    }
     if (isTauri) {
       const forced = r === "kit" && S.kit ? null : gate(r);
       if (forced && forced !== r) {

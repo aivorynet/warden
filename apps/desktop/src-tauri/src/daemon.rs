@@ -214,6 +214,52 @@ impl Daemon {
         Err("the service started, but the daemon does not answer yet".into())
     }
 
+    /// Start `aivory-warden daemon` as a detached process, then wait for it. Unlike
+    /// [`Self::start_service`] this adds no login entry, so it keeps the user's choice in
+    /// Settings > App.
+    pub async fn run_daemon(&self) -> Result<(), String> {
+        let mut cmd = std::process::Command::new(cli_binary());
+        cmd.arg("daemon")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        // DETACHED_PROCESS | CREATE_NO_WINDOW: the daemon outlives the app and shows no console.
+        #[cfg(windows)]
+        std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0000_0008 | 0x0800_0000);
+        cmd.spawn().map_err(|e| e.to_string())?;
+        for _ in 0..20 {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            if self
+                .call(serde_json::json!({ "type": "status" }))
+                .await
+                .is_ok()
+            {
+                return Ok(());
+            }
+        }
+        Err("the daemon started, but it does not answer yet".into())
+    }
+
+    /// Register the native messaging host of the "Save to Warden" browser extension
+    /// (`aivory-warden extension install`). The command is idempotent, and it rewrites the host
+    /// path after an update.
+    pub async fn register_extension(&self) -> Result<(), String> {
+        let out = cli_command()
+            .args(["extension", "install"])
+            .output()
+            .await
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let err = String::from_utf8_lossy(&out.stderr);
+        Err(err
+            .lines()
+            .last()
+            .unwrap_or("extension install failed")
+            .to_owned())
+    }
+
     /// Return true when the background service is installed (it starts at login).
     pub async fn service_installed(&self) -> Result<bool, String> {
         let out = cli_command()

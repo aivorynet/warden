@@ -143,3 +143,10 @@ STORE + RELEASE (2026-11-26 afternoon):
   Submission not started: the product overview page kept loading (new product provisioning).
 - Edge Add-ons: Partner Center account has no Microsoft Edge program; Paul must enroll (accept the agreement).
 - Chrome Web Store: draft; submit after the 2026.11.1 release is out.
+
+STORES (2026-11-27):
+- Microsoft Store submission 1 (2026.11.1 MSIX) IN CERTIFICATION since 2026-11-27. Listing, capability answers,
+  IARC done (docs/store/microsoft-store.md). Partner Center was broken for a day (listings API 400), then worked.
+- Chrome Web Store: Paul filled in the Privacy tab and submitted (per Paul). Waiting for review.
+NEXT: wait for both reviews; then Edge Add-ons (Paul enrolls), add its ID to EXTENSION_IDS, release 2026.11.2
+(vendored libdbus, wix version bump, Homebrew formula update). Test the Store MSIX installed (tray, login entry, Hello).

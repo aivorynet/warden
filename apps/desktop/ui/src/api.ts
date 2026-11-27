@@ -46,6 +46,8 @@ export async function quickUnlock(): Promise<void> {
   if (resp["type"] === "error") throw new ApiError(String(resp["code"]), String(resp["message"]));
 }
 export const startService =(): Promise<void> => (isTauri ? invoke("start_service") : Promise.resolve());
+/** Start the daemon for now, without a login entry. */
+export const runDaemon = (): Promise<void> => (isTauri ? invoke("run_daemon") : Promise.resolve());
 /** Remove the background service. It also stops the daemon. */
 export const removeService = (): Promise<void> => (isTauri ? invoke("remove_service") : mockCall({ type: "remove_service" }).then(() => undefined));
 /** The App section of Settings: tray, login entries and close button. */

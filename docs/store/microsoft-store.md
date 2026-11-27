@@ -10,7 +10,10 @@ Build the package: `cargo build --profile store -p aivory-warden -p aivory-warde
 - Packages: `aivory-warden-2026.11.1-x64.msix`, Windows 10/11 Desktop only.
 - Properties: Developer tools, secondary Security; privacy policy https://aivory.net/warden-privacy/.
 - Pricing: Free, all markets, public, release as soon as possible.
-- Age ratings: questionnaire answered (all No), result 3+ / Everyone. The IARC terms checkbox is Paul's.
+- Age ratings: questionnaire answered (all No), result 3+ / Everyone, IARC terms accepted.
+- Store listing (en-us) and restricted capability answers filled in (each answer max 500 characters).
+- Certification notes: Product > Supplemental info > Additional Testing Information.
+- Submitted for certification 2026-11-27.
 
 ## Store listing (English, United States)
 
